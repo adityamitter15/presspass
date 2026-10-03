@@ -1,0 +1,119 @@
+name: PushupTime
+options:
+  bundleIdPrefix: com.addymitter
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "1"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    DEVELOPMENT_TEAM: 96NZ2LL5TG
+    CODE_SIGN_STYLE: Automatic
+
+# Shared schemes: without these, a freshly generated workspace has no
+# schemes at all (Xcode's autocreated ones live in per-user project data
+# and don't survive regeneration).
+schemes:
+  PushupTimeDev:
+    build:
+      targets:
+        PushupTimeDev: all
+    run:
+      config: Debug
+  PushupTime:
+    build:
+      targets:
+        PushupTime: all
+    run:
+      config: Debug
+
+targets:
+  PushupTime:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - "Resources/pose_landmarker_full.task"
+      - path: Shared
+      - path: App/Resources/pose_landmarker_full.task
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.addymitter.pushuptime
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/PushupTime.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - target: PushupTimeMonitor
+        embed: true
+      - target: PushupTimeShieldConfig
+        embed: true
+      - target: PushupTimeShieldAction
+        embed: true
+
+  # Free-account dev target: same app code, but no Family Controls
+  # entitlement, no App Group, and no embedded Screen Time extensions, so
+  # it can be provisioned with a free personal team for camera/pose
+  # testing and training-data recording. Screen Time features are inert
+  # in this build (authorization requests fail; balance falls back to
+  # local UserDefaults).
+  PushupTimeDev:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - "Resources/pose_landmarker_full.task"
+      - path: Shared
+      - path: App/Resources/pose_landmarker_full.task
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.addymitter.pushuptime.dev
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+
+  PushupTimeMonitor:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MonitorExtension
+      - path: Shared/SharedStore.swift
+      - path: Shared/ShieldController.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.addymitter.pushuptime.monitor
+        INFOPLIST_FILE: MonitorExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: MonitorExtension/PushupTimeMonitor.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+
+  PushupTimeShieldConfig:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShieldConfigExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.addymitter.pushuptime.shieldconfig
+        INFOPLIST_FILE: ShieldConfigExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ShieldConfigExtension/PushupTimeShieldConfig.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+
+  PushupTimeShieldAction:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShieldActionExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.addymitter.pushuptime.shieldaction
+        INFOPLIST_FILE: ShieldActionExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ShieldActionExtension/PushupTimeShieldAction.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES

@@ -1,3 +1,4 @@
+import PushupCore
 import SwiftUI
 
 /// The pushup-counting workout module: camera preview + skeleton overlay,

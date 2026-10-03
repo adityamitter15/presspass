@@ -13,6 +13,10 @@ settings:
     DEVELOPMENT_TEAM: 96NZ2LL5TG
     CODE_SIGN_STYLE: Automatic
 
+packages:
+  PushupCore:
+    path: Packages/PushupCore
+
 # Shared schemes: without these, a freshly generated workspace has no
 # schemes at all (Xcode's autocreated ones live in per-user project data
 # and don't survive regeneration).
@@ -48,6 +52,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: App/PushupTime.entitlements
         GENERATE_INFOPLIST_FILE: NO
     dependencies:
+      - package: PushupCore
       - target: PushupTimeMonitor
         embed: true
       - target: PushupTimeShieldConfig
@@ -76,6 +81,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.addymitter.pushuptime.dev
         INFOPLIST_FILE: App/Info.plist
         GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - package: PushupCore
 
   PushupTimeMonitor:
     type: app-extension

@@ -1,3 +1,4 @@
+import PushupCore
 import SwiftUI
 
 /// Draws joints and connecting bones from a `PoseFrame` over the camera

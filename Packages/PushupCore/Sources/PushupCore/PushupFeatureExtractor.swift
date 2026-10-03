@@ -3,17 +3,23 @@ import Foundation
 
 /// Swift mirror of `training/features.py` ("v1" feature contract). Any
 /// change here must be made identically on the Python side (and vice
-/// versa) — the two are the same algorithm in two languages, not two
+/// versa): the two are the same algorithm in two languages, not two
 /// independent implementations, otherwise a model trained on one won't
 /// match inference on the other.
-enum PushupFeatureExtractor {
+public enum PushupFeatureExtractor {
 
     /// Matches `FEATURE_DIM` in features.py.
-    static let featureDim = 25
+    public static let featureDim = 25
 
     /// Matches `FEATURE_VERSION` in features.py. Bump alongside the Python
     /// constant any time the algorithm below changes.
-    static let featureVersion = "v1"
+    public static let featureVersion = "v1"
+
+    /// Feature vector indices of the two elbow angles (radians), for callers
+    /// that read them back out of the vector (the heuristic classifier, debug
+    /// HUD) so nobody hardcodes the layout.
+    public static let leftElbowAngleIndex = 20
+    public static let rightElbowAngleIndex = 21
 
     /// Matches `_CONF_CHECK_JOINTS`.
     private static let confCheckJoints: [JointName] = [
@@ -41,7 +47,7 @@ enum PushupFeatureExtractor {
     /// Extracts the 25-dim feature vector for one frame's joints, or nil
     /// if the frame fails the confidence gate or is missing joints needed
     /// for normalization. Mirrors `extract_features()` in features.py.
-    static func extract(_ joints: [JointName: JointPoint]) -> [Float]? {
+    public static func extract(_ joints: [JointName: JointPoint]) -> [Float]? {
         // 1. Confidence gate.
         var confSum: Float = 0
         for name in confCheckJoints {

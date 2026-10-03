@@ -5,33 +5,47 @@ import Foundation
 /// for the purposes of the state machine (a rep only counts on a
 /// down -> up transition), so starting a set already in the down position
 /// still requires coming back up before it's counted.
-enum RepPhase {
+public enum RepPhase {
     case idle
     case up
     case down
 }
 
 /// Everything `RepCounter` needs about one frame to advance its state
-/// machine. Built by the workout view model from a `PoseFrame` + the
-/// extracted feature vector + the active `PoseClassifier`'s output —
+/// machine. Built by `PushupPipeline` from a `PoseFrame` + the
+/// extracted feature vector + the active `PoseClassifier`'s output.
 /// `RepCounter` itself never touches pose-detection/CoreML types, which
 /// keeps it trivially testable.
-struct RepCounterFrameInput {
-    let timestamp: TimeInterval
-    let label: PoseLabel
-    let labelConfidence: Float
-    /// Anti-cheat posture gate, computed by the view model for the current
+public struct RepCounterFrameInput {
+    public let timestamp: TimeInterval
+    public let label: PoseLabel
+    public let labelConfidence: Float
+    /// Anti-cheat posture gate (`PostureGate`), computed for the current
     /// camera setup (front view: wrists must be below the shoulders in the
     /// image, i.e. hands planted on the floor). False = frame is ignored.
-    let postureValid: Bool
+    public let postureValid: Bool
     /// False if any of the anti-cheat "required" joints (wrists,
     /// shoulders, hips) are below the confidence floor this frame.
-    let requiredJointsConfident: Bool
+    public let requiredJointsConfident: Bool
+
+    public init(
+        timestamp: TimeInterval,
+        label: PoseLabel,
+        labelConfidence: Float,
+        postureValid: Bool,
+        requiredJointsConfident: Bool
+    ) {
+        self.timestamp = timestamp
+        self.label = label
+        self.labelConfidence = labelConfidence
+        self.postureValid = postureValid
+        self.requiredJointsConfident = requiredJointsConfident
+    }
 }
 
 /// Why the most recent frame didn't advance the rep count, surfaced to the
 /// UI so the user gets feedback instead of a counter that silently stalls.
-enum RepCounterIgnoreReason: Equatable {
+public enum RepCounterIgnoreReason: Equatable {
     case none
     case lowConfidence
     case notInPushupPosture
@@ -42,7 +56,7 @@ enum RepCounterIgnoreReason: Equatable {
 /// - EMA-smooths the confidence of the `up` and `down` labels (alpha 0.3)
 ///   so single noisy frames can't flip the phase.
 /// - Hysteresis: a phase is entered once its smoothed confidence reaches
-///   0.6, and only exited once it drops to 0.4 — this is what keeps a
+///   0.6, and only exited once it drops to 0.4. This is what keeps a
 ///   classifier hovering near a boundary from chattering back and forth.
 /// - Minimum 0.5s dwell time in each phase before a further transition is
 ///   accepted, so a fast partial movement can't register as a phase
@@ -51,28 +65,53 @@ enum RepCounterIgnoreReason: Equatable {
 ///   one second after the previous counted rep are rejected (tracked
 ///   separately) rather than silently dropped, so rapid-fire cheating
 ///   shows up in the UI instead of just not incrementing.
-final class RepCounter {
-    private(set) var reps: Int = 0
-    private(set) var rejectedReps: Int = 0
-    private(set) var phase: RepPhase = .idle
-    private(set) var currentLabel: PoseLabel = .notPushup
-    private(set) var lastIgnoreReason: RepCounterIgnoreReason = .none
+public final class RepCounter {
+    /// Tunable thresholds. The defaults are the shipped behaviour.
+    public struct Config: Equatable {
+        public var emaAlpha: Float
+        public var enterThreshold: Float
+        public var exitThreshold: Float
+        public var minPhaseDuration: TimeInterval
+        public var minSecondsBetweenReps: TimeInterval
 
-    private let emaAlpha: Float = 0.3
-    private let enterThreshold: Float = 0.6
-    private let exitThreshold: Float = 0.4
-    private let minPhaseDuration: TimeInterval = 0.5
-    private let minSecondsBetweenReps: TimeInterval = 1.0
+        public static let `default` = Config()
+
+        public init(
+            emaAlpha: Float = 0.3,
+            enterThreshold: Float = 0.6,
+            exitThreshold: Float = 0.4,
+            minPhaseDuration: TimeInterval = 0.5,
+            minSecondsBetweenReps: TimeInterval = 1.0
+        ) {
+            self.emaAlpha = emaAlpha
+            self.enterThreshold = enterThreshold
+            self.exitThreshold = exitThreshold
+            self.minPhaseDuration = minPhaseDuration
+            self.minSecondsBetweenReps = minSecondsBetweenReps
+        }
+    }
+
+    public private(set) var reps: Int = 0
+    public private(set) var rejectedReps: Int = 0
+    public private(set) var phase: RepPhase = .idle
+    public private(set) var currentLabel: PoseLabel = .notPushup
+    public private(set) var lastIgnoreReason: RepCounterIgnoreReason = .none
+
+    private let config: Config
 
     /// Confidence floor for the anti-cheat "required joints" check.
-    static let requiredJointConfidenceFloor: Float = 0.3
+    public static let requiredJointConfidenceFloor: Float = 0.3
 
     private var emaUp: Float = 0
     private var emaDown: Float = 0
     private var phaseEnteredAt: TimeInterval?
     private var lastCountedRepAt: TimeInterval?
 
-    func reset() {
+    public init(config: Config = .default) {
+        self.config = config
+    }
+
+    public func reset() {
         reps = 0
         rejectedReps = 0
         phase = .idle
@@ -90,7 +129,7 @@ final class RepCounter {
     /// `lastIgnoreReason` is updated so the UI can explain why the
     /// counter didn't move.
     @discardableResult
-    func process(_ input: RepCounterFrameInput) -> RepPhase {
+    public func process(_ input: RepCounterFrameInput) -> RepPhase {
         guard input.requiredJointsConfident else {
             lastIgnoreReason = .lowConfidence
             return phase
@@ -106,8 +145,8 @@ final class RepCounter {
 
         let upSignal: Float = input.label == .up ? input.labelConfidence : 0
         let downSignal: Float = input.label == .down ? input.labelConfidence : 0
-        emaUp = emaAlpha * upSignal + (1 - emaAlpha) * emaUp
-        emaDown = emaAlpha * downSignal + (1 - emaAlpha) * emaDown
+        emaUp = config.emaAlpha * upSignal + (1 - config.emaAlpha) * emaUp
+        emaDown = config.emaAlpha * downSignal + (1 - config.emaAlpha) * emaDown
 
         let proposedPhase = nextPhase(at: input.timestamp)
         if proposedPhase != phase {
@@ -125,29 +164,29 @@ final class RepCounter {
 
     private func nextPhase(at timestamp: TimeInterval) -> RepPhase {
         let timeInPhase = phaseEnteredAt.map { timestamp - $0 } ?? .infinity
-        if timeInPhase < minPhaseDuration {
+        if timeInPhase < config.minPhaseDuration {
             return phase
         }
 
         switch phase {
         case .idle:
-            if emaUp >= enterThreshold { return .up }
-            if emaDown >= enterThreshold { return .down }
+            if emaUp >= config.enterThreshold { return .up }
+            if emaDown >= config.enterThreshold { return .down }
             return .idle
         case .up:
             // True hysteresis: only leave `up` once its own confidence has
             // decayed past the exit threshold *and* `down` has risen past
             // the (higher) enter threshold.
-            if emaUp <= exitThreshold && emaDown >= enterThreshold { return .down }
+            if emaUp <= config.exitThreshold && emaDown >= config.enterThreshold { return .down }
             return .up
         case .down:
-            if emaDown <= exitThreshold && emaUp >= enterThreshold { return .up }
+            if emaDown <= config.exitThreshold && emaUp >= config.enterThreshold { return .up }
             return .down
         }
     }
 
     private func countRep(at timestamp: TimeInterval) {
-        if let last = lastCountedRepAt, timestamp - last < minSecondsBetweenReps {
+        if let last = lastCountedRepAt, timestamp - last < config.minSecondsBetweenReps {
             rejectedReps += 1
             return
         }

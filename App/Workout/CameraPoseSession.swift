@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreImage
 import MediaPipeTasksVision
+import PushupCore
 import UIKit
 import os.log
 
@@ -193,7 +194,7 @@ extension CameraPoseSession: AVCaptureVideoDataOutputSampleBufferDelegate {
             return
         }
 
-        deliver(BlazePoseMapping.poseFrame(timestamp: timestamp, landmarks: landmarks))
+        deliver(BlazePoseMapping.poseFrame(timestamp: timestamp, landmarks: landmarks.map(RawLandmark.init)))
     }
 
     private func deliver(_ frame: PoseFrame) {

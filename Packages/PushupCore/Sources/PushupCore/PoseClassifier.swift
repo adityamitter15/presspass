@@ -2,7 +2,7 @@ import CoreML
 import Foundation
 
 /// Coarse pose classification for one frame's feature vector.
-enum PoseLabel: String {
+public enum PoseLabel: String {
     case up
     case down
     case notPushup = "not_pushup"
@@ -12,7 +12,7 @@ enum PoseLabel: String {
 /// confidence. Lets the workout module swap between the shipped heuristic
 /// and a trained Core ML model without either the UI or `RepCounter`
 /// caring which one is active.
-protocol PoseClassifier {
+public protocol PoseClassifier {
     func classify(_ features: [Float]) -> (label: PoseLabel, confidence: Float)
 }
 
@@ -24,42 +24,60 @@ protocol PoseClassifier {
 /// bend). A low-confidence "continuation" of the previous label in the
 /// ambiguous middle band avoids flicker before `RepCounter`'s hysteresis
 /// even gets involved. Posture gating (wrists below shoulders) lives in
-/// `WorkoutViewModel`, not here.
-final class HeuristicPoseClassifier: PoseClassifier {
-    /// Feature vector indices, matching PushupFeatureExtractor's layout.
-    private enum FeatureIndex {
-        static let leftElbowAngle = 20
-        static let rightElbowAngle = 21
+/// `PostureGate`, not here.
+public final class HeuristicPoseClassifier: PoseClassifier {
+    /// Tunable thresholds. The defaults are the shipped behaviour.
+    public struct Config: Equatable {
+        public var downElbowDegrees: Float
+        public var upElbowDegrees: Float
+        public var confidentScore: Float
+        public var ambiguousScore: Float
+
+        public static let `default` = Config()
+
+        public init(
+            downElbowDegrees: Float = 120,
+            upElbowDegrees: Float = 145,
+            confidentScore: Float = 0.9,
+            ambiguousScore: Float = 0.35
+        ) {
+            self.downElbowDegrees = downElbowDegrees
+            self.upElbowDegrees = upElbowDegrees
+            self.confidentScore = confidentScore
+            self.ambiguousScore = ambiguousScore
+        }
     }
 
-    private static let downElbowDegreesThreshold: Float = 120
-    private static let upElbowDegreesThreshold: Float = 145
-
+    private let config: Config
     private var previousLabel: PoseLabel = .notPushup
 
-    func classify(_ features: [Float]) -> (label: PoseLabel, confidence: Float) {
+    public init(config: Config = .default) {
+        self.config = config
+    }
+
+    public func classify(_ features: [Float]) -> (label: PoseLabel, confidence: Float) {
         guard features.count == PushupFeatureExtractor.featureDim else {
             return (.notPushup, 0)
         }
 
-        let leftElbowDeg = radiansToDegrees(features[FeatureIndex.leftElbowAngle])
-        let rightElbowDeg = radiansToDegrees(features[FeatureIndex.rightElbowAngle])
+        let leftElbowDeg = radiansToDegrees(features[PushupFeatureExtractor.leftElbowAngleIndex])
+        let rightElbowDeg = radiansToDegrees(features[PushupFeatureExtractor.rightElbowAngleIndex])
         let meanElbowDeg = (leftElbowDeg + rightElbowDeg) / 2
 
-        if meanElbowDeg < Self.downElbowDegreesThreshold {
+        if meanElbowDeg < config.downElbowDegrees {
             previousLabel = .down
-            return (.down, 0.9)
+            return (.down, config.confidentScore)
         }
 
-        if meanElbowDeg > Self.upElbowDegreesThreshold {
+        if meanElbowDeg > config.upElbowDegrees {
             previousLabel = .up
-            return (.up, 0.9)
+            return (.up, config.confidentScore)
         }
 
         // Ambiguous middle band: keep whatever the last confident label
         // was, but at low confidence so RepCounter's hysteresis doesn't
         // treat it as a fresh confident observation.
-        return (previousLabel, 0.35)
+        return (previousLabel, config.ambiguousScore)
     }
 }
 
@@ -67,10 +85,10 @@ final class HeuristicPoseClassifier: PoseClassifier {
 /// `.mlmodelc` by Xcode) from the app bundle if one has been shipped.
 /// Deliberately built against the generic `MLModel` / feature-provider
 /// API rather than an auto-generated model class, since the model file
-/// does not exist yet — a generated Swift wrapper for it would be a
+/// does not exist yet: a generated Swift wrapper for it would be a
 /// build-time dependency this target can't have until training produces
 /// a model and it's dropped into the bundle.
-final class CoreMLPoseClassifier: PoseClassifier {
+public final class CoreMLPoseClassifier: PoseClassifier {
     private static let modelResourceName = "PushupPoseClassifier"
     private static let inputFeatureName = "pose_features"
     // Output feature names must match LABEL_OUTPUT_NAME /
@@ -87,17 +105,23 @@ final class CoreMLPoseClassifier: PoseClassifier {
     /// Returns a classifier backed by the bundled model, or nil if no
     /// model is present or it fails to load. Callers should fall back to
     /// `HeuristicPoseClassifier` when this returns nil.
-    static func loadFromBundle() -> CoreMLPoseClassifier? {
-        guard let url = Bundle.main.url(forResource: modelResourceName, withExtension: "mlmodelc") else {
+    public static func loadFromBundle(_ bundle: Bundle = .main) -> CoreMLPoseClassifier? {
+        guard let url = bundle.url(forResource: modelResourceName, withExtension: "mlmodelc") else {
             return nil
         }
-        guard let model = try? MLModel(contentsOf: url) else {
+        return load(compiledModelURL: url)
+    }
+
+    /// Returns a classifier backed by the compiled model (`.mlmodelc`) at
+    /// `compiledModelURL`, or nil if it fails to load.
+    public static func load(compiledModelURL: URL) -> CoreMLPoseClassifier? {
+        guard let model = try? MLModel(contentsOf: compiledModelURL) else {
             return nil
         }
         return CoreMLPoseClassifier(model: model)
     }
 
-    func classify(_ features: [Float]) -> (label: PoseLabel, confidence: Float) {
+    public func classify(_ features: [Float]) -> (label: PoseLabel, confidence: Float) {
         guard features.count == PushupFeatureExtractor.featureDim,
               let inputArray = try? MLMultiArray(shape: [NSNumber(value: features.count)], dataType: .float32) else {
             return (.notPushup, 0)
@@ -130,8 +154,8 @@ final class CoreMLPoseClassifier: PoseClassifier {
 /// Picks the best available classifier: the Core ML model if one has
 /// been shipped in the bundle, otherwise the heuristic. Call once per
 /// workout session (the heuristic keeps a little state between frames).
-enum PoseClassifierFactory {
-    static func makeDefault() -> PoseClassifier {
+public enum PoseClassifierFactory {
+    public static func makeDefault() -> PoseClassifier {
         if let coreML = CoreMLPoseClassifier.loadFromBundle() {
             return coreML
         }

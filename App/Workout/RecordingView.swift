@@ -1,5 +1,6 @@
 #if DEBUG
 import AVFoundation
+import PushupCore
 import SwiftUI
 
 /// DEBUG-only data-collection mode: records labeled landmark sessions and

@@ -1,15 +1,15 @@
 import CoreGraphics
-import MediaPipeTasksVision
+import Foundation
 
 /// Converts a BlazePose (MediaPipe `PoseLandmarker`) result into this
 /// pipeline's `PoseFrame` contract.
 ///
-/// BlazePose reports 33 `NormalizedLandmark`s per pose, `x`/`y` normalized
+/// BlazePose reports 33 landmarks (`RawLandmark`) per pose, `x`/`y` normalized
 /// to [0, 1] with the origin at the TOP-left and y increasing DOWNWARD, plus
 /// a `visibility` score. `PoseFrame`'s convention is the opposite on y
-/// (origin bottom-left, y up) — see `PoseFrame.swift` — so every landmark is
+/// (origin bottom-left, y up), see `PoseFrame.swift`, so every landmark is
 /// flipped on the way in.
-enum BlazePoseMapping {
+public enum BlazePoseMapping {
     /// Landmark indices this pipeline uses, per the BlazePose topology:
     /// https://developers.google.com/mediapipe/solutions/vision/pose_landmarker
     private static let landmarkIndex: [JointName: Int] = [
@@ -37,7 +37,7 @@ enum BlazePoseMapping {
     /// an empty or short array (e.g. because nothing was detected) yields a
     /// frame with no joints, which downstream code already treats as the
     /// "no body detected" case.
-    static func poseFrame(timestamp: TimeInterval, landmarks: [NormalizedLandmark]) -> PoseFrame {
+    public static func poseFrame(timestamp: TimeInterval, landmarks: [RawLandmark]) -> PoseFrame {
         guard landmarks.count >= 29 else {
             return PoseFrame(timestamp: timestamp, joints: [:])
         }
@@ -60,11 +60,11 @@ enum BlazePoseMapping {
 
     /// Converts one landmark into a `JointPoint` in `PoseFrame`'s
     /// convention, or `nil` if its visibility is too low to trust.
-    private static func jointPoint(_ landmark: NormalizedLandmark) -> JointPoint? {
+    private static func jointPoint(_ landmark: RawLandmark) -> JointPoint? {
         // Absent visibility (e.g. a model variant that doesn't emit it) is
         // treated as a middling 0.5 confidence rather than "fully visible",
         // so it doesn't masquerade as a confident detection downstream.
-        let confidence = landmark.visibility?.floatValue.clamped01() ?? 0.5
+        let confidence = landmark.visibility?.clamped01() ?? 0.5
         guard confidence >= minVisibility else { return nil }
         return JointPoint(x: CGFloat(landmark.x), y: 1 - CGFloat(landmark.y), confidence: confidence)
     }

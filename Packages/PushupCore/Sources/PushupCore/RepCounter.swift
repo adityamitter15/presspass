@@ -66,8 +66,10 @@ public enum RepCounterIgnoreReason: Equatable {
 ///   separately) rather than silently dropped, so rapid-fire cheating
 ///   shows up in the UI instead of just not incrementing.
 public final class RepCounter {
-    /// Tunable thresholds. The defaults are the shipped behaviour.
-    public struct Config: Equatable {
+    /// Tunable thresholds. The defaults are the shipped behaviour. Decoding
+    /// falls back to the default for any key that is missing, so a config
+    /// file can override a single threshold.
+    public struct Config: Equatable, Codable {
         public var emaAlpha: Float
         public var enterThreshold: Float
         public var exitThreshold: Float
@@ -88,6 +90,18 @@ public final class RepCounter {
             self.exitThreshold = exitThreshold
             self.minPhaseDuration = minPhaseDuration
             self.minSecondsBetweenReps = minSecondsBetweenReps
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let defaults = Config()
+            self.init(
+                emaAlpha: try container.decodeIfPresent(Float.self, forKey: .emaAlpha) ?? defaults.emaAlpha,
+                enterThreshold: try container.decodeIfPresent(Float.self, forKey: .enterThreshold) ?? defaults.enterThreshold,
+                exitThreshold: try container.decodeIfPresent(Float.self, forKey: .exitThreshold) ?? defaults.exitThreshold,
+                minPhaseDuration: try container.decodeIfPresent(TimeInterval.self, forKey: .minPhaseDuration) ?? defaults.minPhaseDuration,
+                minSecondsBetweenReps: try container.decodeIfPresent(TimeInterval.self, forKey: .minSecondsBetweenReps) ?? defaults.minSecondsBetweenReps
+            )
         }
     }
 

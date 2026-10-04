@@ -28,3 +28,7 @@ Config/*.local.xcconfig
 # Private working notes, not part of the published project
 research_notes/
 reports/
+
+# Evaluation tooling
+eval/.venv/
+.pytest_cache/

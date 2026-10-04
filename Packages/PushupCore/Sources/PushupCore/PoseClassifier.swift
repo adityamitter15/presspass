@@ -26,8 +26,10 @@ public protocol PoseClassifier {
 /// even gets involved. Posture gating (wrists below shoulders) lives in
 /// `PostureGate`, not here.
 public final class HeuristicPoseClassifier: PoseClassifier {
-    /// Tunable thresholds. The defaults are the shipped behaviour.
-    public struct Config: Equatable {
+    /// Tunable thresholds. The defaults are the shipped behaviour. Decoding
+    /// falls back to the default for any key that is missing, so a config
+    /// file can override a single threshold.
+    public struct Config: Equatable, Codable {
         public var downElbowDegrees: Float
         public var upElbowDegrees: Float
         public var confidentScore: Float
@@ -45,6 +47,17 @@ public final class HeuristicPoseClassifier: PoseClassifier {
             self.upElbowDegrees = upElbowDegrees
             self.confidentScore = confidentScore
             self.ambiguousScore = ambiguousScore
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let defaults = Config()
+            self.init(
+                downElbowDegrees: try container.decodeIfPresent(Float.self, forKey: .downElbowDegrees) ?? defaults.downElbowDegrees,
+                upElbowDegrees: try container.decodeIfPresent(Float.self, forKey: .upElbowDegrees) ?? defaults.upElbowDegrees,
+                confidentScore: try container.decodeIfPresent(Float.self, forKey: .confidentScore) ?? defaults.confidentScore,
+                ambiguousScore: try container.decodeIfPresent(Float.self, forKey: .ambiguousScore) ?? defaults.ambiguousScore
+            )
         }
     }
 

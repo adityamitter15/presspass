@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import PushupCore
+import PushupSynth
 
 /// Counts how often it is asked to classify, delegating to the heuristic.
 private final class SpyClassifier: PoseClassifier {

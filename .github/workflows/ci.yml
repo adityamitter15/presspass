@@ -9,5 +9,15 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run PushupCore tests
+      - name: Run all package tests
         run: swift test --package-path Packages/PushupCore
+
+  eval-smoke:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Run the report tests
+        run: uv run --project eval pytest eval/tests
+      - name: Replay a synthetic dataset end to end
+        run: scripts/eval_synthetic.sh

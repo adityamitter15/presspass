@@ -9,6 +9,7 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 - Written to `Documents/Recordings/` in the app container, one file per take, atomically.
 - File name: `<kind>_<yyyyMMdd-HHmmss>_<first 8 characters of id, lowercased>.json`, time in UTC. Example: `set_20260704-093015_3f2504e0.json`.
 - "Export all" in the recorder zips the whole directory as `pushup-recordings-<yyyyMMdd-HHmmss>.zip` (UTC) for sharing.
+- On the Mac, recordings live in `data/sessions/` at the repo root. The evaluation tools read that directory by default (`docs/evaluation.md`).
 - Schema 1 (the earlier `label` / `source` / `joints` format) is not readable by the schema 2 loader. A file whose `schema` is not `2` is rejected with `RecordedSessionError.unsupportedSchema`.
 - Absent optional values are omitted from the JSON rather than written as `null`. A reader should treat a missing key and `null` the same way.
 - Size is roughly 45 to 70 kB per recorded second at 30 fps, so a take at the 300 second limit is about 14 to 20 MB.

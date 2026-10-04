@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 import PushupCore
+import PushupSynth
 
 @Suite("PushupFeatureExtractor")
 struct PushupFeatureExtractorTests {

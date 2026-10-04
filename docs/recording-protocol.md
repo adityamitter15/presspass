@@ -105,4 +105,4 @@ Nothing is tuned on the test set. If it is ever used to make a decision, that is
 
 ## Getting the files off the phone
 
-Either connect the phone to the Mac, or use Export all in the recorder and AirDrop the zip to the Mac. The JSON files go in `training/data/raw/`. The file format is described in `docs/data-format.md`.
+Either connect the phone to the Mac, or use Export all in the recorder and AirDrop the zip to the Mac. The JSON files go in `data/sessions/` at the repo root (see `docs/evaluation.md` for what to run next). The file format is described in `docs/data-format.md`.

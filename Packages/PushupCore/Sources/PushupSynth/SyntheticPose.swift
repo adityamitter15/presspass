@@ -6,7 +6,7 @@ import PushupCore
 /// bottom-left, y up). Shoulders are level and above the hips, wrists are
 /// planted below the shoulders, and the elbows sit where the angle
 /// shoulder-elbow-wrist equals the requested angle on both arms.
-enum SyntheticPose {
+public enum SyntheticPose {
     // Base geometry, before scale and translation.
     static let hipCenter = CGPoint(x: 0.5, y: 0.30)
     static let torsoLength: CGFloat = 0.30
@@ -16,29 +16,29 @@ enum SyntheticPose {
     static let forearmLength: CGFloat = 0.12
 
     /// Knobs for one pose. Defaults give a confident, in-posture pose.
-    struct Options {
-        var confidence: Float = 0.9
-        var confidenceOverrides: [JointName: Float] = [:]
-        var dropped: Set<JointName> = []
-        var translation = CGPoint.zero
+    public struct Options {
+        public var confidence: Float = 0.9
+        public var confidenceOverrides: [JointName: Float] = [:]
+        public var dropped: Set<JointName> = []
+        public var translation = CGPoint.zero
         /// Uniform scale about the hip centre, applied before translation.
-        var scale: CGFloat = 1
+        public var scale: CGFloat = 1
         /// Standing arm-wave cheat: wrists above the shoulders instead of
         /// planted below them. The elbow angle is unchanged.
-        var wristsAboveShoulders = false
+        public var wristsAboveShoulders = false
         /// Sideways shift of the shoulder centre relative to the hip centre,
         /// in base units. Positive keeps the shoulder centre to the right of
         /// the hip centre, so the extractor's mirror sign is +1 and not
         /// decided by floating-point noise.
-        var lean: CGFloat = 0.02
+        public var lean: CGFloat = 0.02
         /// Mirror the whole pose left-right about the hip centre (applied
         /// after scale, before translation).
-        var mirrored = false
+        public var mirrored = false
 
-        init() {}
+        public init() {}
     }
 
-    static func joints(elbowDegrees: Double, _ options: Options = Options()) -> [JointName: JointPoint] {
+    public static func joints(elbowDegrees: Double, _ options: Options = Options()) -> [JointName: JointPoint] {
         let base = basePoints(elbowDegrees: elbowDegrees, options: options)
         var result: [JointName: JointPoint] = [:]
         for (name, p) in base where !options.dropped.contains(name) {
@@ -54,7 +54,7 @@ enum SyntheticPose {
         return result
     }
 
-    static func frame(
+    public static func frame(
         timestamp: TimeInterval,
         elbowDegrees: Double,
         _ options: Options = Options()
@@ -66,7 +66,7 @@ enum SyntheticPose {
     /// angle holds at `topDegrees` for `leadInSeconds`, then each rep eases
     /// smoothly (raised cosine) from top to bottom and back, then holds at
     /// the top for `leadOutSeconds` so the final up transition can register.
-    static func repSequence(
+    public static func repSequence(
         reps: Int,
         secondsPerRep: Double,
         fps: Double = 30,
@@ -114,7 +114,7 @@ enum SyntheticPose {
     /// and `root` are not written, the mapping synthesises them. A joint that
     /// is absent from `joints` gets the placeholder too, so the mapping omits
     /// it again.
-    static func rawLandmarks(from joints: [JointName: JointPoint]) -> [RawLandmark] {
+    public static func rawLandmarks(from joints: [JointName: JointPoint]) -> [RawLandmark] {
         let placeholder = RawLandmark(x: 0.5, y: 0.5, z: 0, visibility: 0.02, presence: 0.02)
         var landmarks = [RawLandmark](repeating: placeholder, count: 33)
         for (name, index) in blazePoseIndex {
@@ -132,7 +132,7 @@ enum SyntheticPose {
 
     /// 33 plausible world landmarks in metres, only so tests have something
     /// to round-trip. Not derived from the pose geometry.
-    static func worldLandmarks(seed: Int) -> [RawLandmark] {
+    public static func worldLandmarks(seed: Int) -> [RawLandmark] {
         (0..<33).map { index in
             let v = Float(index + seed)
             return RawLandmark(x: sin(v) * 0.4, y: cos(v) * 0.4, z: sin(v * 0.5) * 0.2, visibility: nil, presence: nil)
@@ -142,7 +142,7 @@ enum SyntheticPose {
     /// Raw frames for a synthetic pose sequence. The presentation time is the
     /// frame timestamp plus a fixed offset, as a camera clock would differ
     /// from the session clock.
-    static func rawFrames(from frames: [PoseFrame], presentationOffset: TimeInterval = 5000) -> [RawPoseFrame] {
+    public static func rawFrames(from frames: [PoseFrame], presentationOffset: TimeInterval = 5000) -> [RawPoseFrame] {
         frames.enumerated().map { index, frame in
             RawPoseFrame(
                 timestamp: frame.timestamp,
@@ -154,7 +154,7 @@ enum SyntheticPose {
     }
 
     /// Angle in degrees at `vertex` between the rays to `a` and `b`.
-    static func angleDegrees(vertex: JointPoint, _ a: JointPoint, _ b: JointPoint) -> Double {
+    public static func angleDegrees(vertex: JointPoint, _ a: JointPoint, _ b: JointPoint) -> Double {
         let v1 = (x: Double(a.x - vertex.x), y: Double(a.y - vertex.y))
         let v2 = (x: Double(b.x - vertex.x), y: Double(b.y - vertex.y))
         let cosA = (v1.x * v2.x + v1.y * v2.y) / (hypot(v1.x, v1.y) * hypot(v2.x, v2.y))

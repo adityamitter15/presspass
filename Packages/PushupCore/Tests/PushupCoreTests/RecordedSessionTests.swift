@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 import PushupCore
+import PushupSynth
 
 private let sampleDevice = DeviceInfo(
     model: "iPhone17,2",

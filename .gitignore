@@ -29,6 +29,9 @@ Config/*.local.xcconfig
 research_notes/
 reports/
 
+# Signed consent sheets and the name-to-label list: never published
+private/
+
 # Evaluation tooling
 eval/.venv/
 .pytest_cache/

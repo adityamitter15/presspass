@@ -189,7 +189,7 @@ struct RecordingView: View {
     // MARK: - Setup
 
     private var setupSection: some View {
-        Section("Setup") {
+        Section {
             Picker("Kind", selection: $kind) {
                 ForEach(RecordedSession.Kind.allCases, id: \.self) { kind in
                     Text(kind.title).tag(kind)
@@ -225,6 +225,10 @@ struct RecordingView: View {
             }
 
             TextField("Notes (optional)", text: $notes)
+        } header: {
+            Text("Setup")
+        } footer: {
+            Text(viewModel.isMotionAvailable ? "Motion sensors: on" : "Motion sensors: unavailable")
         }
         .disabled(viewModel.isRecording)
     }

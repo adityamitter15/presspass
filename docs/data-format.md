@@ -12,7 +12,8 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 - On the Mac, recordings live in `data/sessions/` at the repo root. The evaluation tools read that directory by default (`docs/evaluation.md`).
 - Schema 1 (the earlier `label` / `source` / `joints` format) is not readable by the schema 2 loader. A file whose `schema` is not `2` is rejected with `RecordedSessionError.unsupportedSchema`.
 - Absent optional values are omitted from the JSON rather than written as `null`. A reader should treat a missing key and `null` the same way.
-- Size is roughly 45 to 70 kB per recorded second at 30 fps, so a take at the 300 second limit is about 14 to 20 MB.
+- Size is roughly 45 to 70 kB per recorded second at 30 fps, so a take at the 300 second limit is about 14 to 20 MB. Motion adds roughly 10 to 15 kB per recorded second (100 samples of 10 numbers).
+- `motion` was added without changing the schema number. A file without it is still a valid schema 2 file and loads with no motion.
 
 ## Top level
 
@@ -30,6 +31,7 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 | `device` | object | See "Device". |
 | `live` | object, optional | What the app counted while recording, see "Live result". |
 | `frames` | array | One entry per camera frame, see "Frames". |
+| `motion` | object, optional | The phone's own motion during the take, see "Motion". Absent in early files and when the device had no motion sensors. |
 
 ## Ground truth
 
@@ -144,13 +146,40 @@ Values are rounded when written, so the JSON stays short:
 
 A frame holding any non-finite number, or a landmark array that is not 33 long, is stored without that array.
 
+## Motion
+
+`motion` holds the phone's own motion while the take was recording, so later analysis can tell whether the phone was moved and whether a phone resting on the floor can sense a pushup through the floor. It comes from Core Motion's device motion, which needs no permission.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `rateHz` | number | The update rate that was requested, `100`. The real spacing varies, so use `t` rather than assuming a fixed step. |
+| `samples` | array of numbers | Flat array, 10 values per sample. Sample `i` starts at offset `i * 10`. |
+
+Each sample is:
+
+`[t, ax, ay, az, rx, ry, rz, gx, gy, gz]`
+
+| Values | Source | Unit |
+|---|---|---|
+| `t` | Sample time on the pose timeline, see below | seconds |
+| `ax`, `ay`, `az` | `CMDeviceMotion.userAcceleration`, acceleration with gravity removed | g |
+| `rx`, `ry`, `rz` | `CMDeviceMotion.rotationRate` | rad/s |
+| `gx`, `gy`, `gz` | `CMDeviceMotion.gravity`, the gravity vector | g |
+
+- Axes are Core Motion's device reference frame: x to the right of the screen, y towards the top of the screen, z out of the screen, fixed to the phone whatever its orientation. See Apple's documentation: https://developer.apple.com/documentation/coremotion/cmdevicemotion and https://developer.apple.com/documentation/coremotion/cmattitude
+- `t` is on the same timeline as `frames[].pts`: seconds since the presentation time of the first recorded frame. The camera presentation timestamps and `CMDeviceMotion.timestamp` are both host-clock seconds since boot, so they are directly comparable. Do not mix `t` with `frames[].t`, which is a different clock.
+- A sample taken between pressing Start and the first frame arriving has a small negative `t`.
+- Samples are in time order. A reader must count whole samples only: `samples.count / 10` rounded down, ignoring a trailing partial sample. `PushupCore` does this in `MotionStream.sampleCount`.
+- Rounding: `t` to 6 decimal places, the nine sensor values to 5.
+- `motion` is omitted when the device has no motion sensors (including the simulator) or when the first recorded frame had no presentation time, since the timelines then cannot be aligned.
+
 ## Replaying a take
 
 `RecordedSession.load(from:)` reads a file and `poseFrames()` maps every frame to a `PoseFrame` with `BlazePoseMapping.poseFrame(from:)`. A frame without `lm` maps to a frame with no joints. Feeding those to a fresh `PushupPipeline` with the same classifier gives the same counting path the app ran live; compare its `reps` with `trueReps`, and with `live.reps` to check the replay matches what the app showed. Landmarks with visibility below 0.1 are dropped by the mapping, as they are live.
 
 ## Example
 
-A minimal document (the landmark arrays are shortened here for reading; real ones have 165 and 99 numbers):
+A minimal document (the landmark arrays are shortened here for reading; real ones have 165 and 99 numbers, and real `motion.samples` holds one sample every 10 ms or so, not two):
 
 ```json
 {
@@ -182,6 +211,13 @@ A minimal document (the landmark arrays are shortened here for reading; real one
   "frames": [
     { "t": 0, "pts": 0, "lm": [0.512345, 0.231234, -0.150001, 0.9876, 0.9991, "..."], "wlm": [0.01234, -0.5421, 0.0987, "..."] },
     { "t": 0.033412, "pts": 0.033333 }
-  ]
+  ],
+  "motion": {
+    "rateHz": 100,
+    "samples": [
+      -0.004211, 0.00123, -0.00457, 0.00089, 0.0102, -0.0033, 0.0007, 0.01234, -0.98765, -0.15432,
+      0.005789, 0.00131, -0.00449, 0.00091, 0.0098, -0.0035, 0.0006, 0.01236, -0.98764, -0.15433
+    ]
+  }
 }
 ```

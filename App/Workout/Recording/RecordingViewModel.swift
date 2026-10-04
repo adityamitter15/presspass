@@ -51,7 +51,8 @@ struct RecordingTotals: Equatable {
 }
 
 /// Drives the DEBUG recorder screen. Owns the camera session, records the
-/// raw landmark stream while a take is running, and runs the same pipeline
+/// raw landmark stream and the phone's own motion while a take is running,
+/// and runs the same pipeline
 /// the workout screen uses so the app's count can be stored next to the
 /// human-entered one. Camera callbacks arrive on the main queue; encoding
 /// and file work run on a utility queue and publish back on main.
@@ -73,6 +74,7 @@ final class RecordingViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let cameraSession = CameraPoseSession()
+    private let motionRecorder = MotionRecorder()
     private let store = RecordingStore()
     private let ioQueue = DispatchQueue(label: "com.addymitter.pushuptime.recorder.io", qos: .utility)
     private var isCameraActive = false
@@ -90,8 +92,13 @@ final class RecordingViewModel: ObservableObject {
     private var takeID = ""
     private var takeCreatedAt = Date()
     private var takeDevice: DeviceInfo?
+    private var takeMotion: MotionStream?
+
+    /// Whether this device can supply device motion, shown as a status line.
+    let isMotionAvailable: Bool
 
     init() {
+        isMotionAvailable = motionRecorder.isAvailable
         cameraSession.onRawFrame = { [weak self] raw in
             self?.handle(raw: raw)
         }
@@ -112,6 +119,7 @@ final class RecordingViewModel: ObservableObject {
     func startCamera() {
         guard !isCameraActive else { return }
         isCameraActive = true
+        motionRecorder.start()
         cameraSession.start { [weak self] result in
             guard let self else { return }
             if case .failure(let error) = result {
@@ -122,6 +130,7 @@ final class RecordingViewModel: ObservableObject {
                     self.errorMessage = "No front camera is available on this device."
                 }
                 self.isCameraActive = false
+                self.motionRecorder.stop()
             }
         }
     }
@@ -130,9 +139,11 @@ final class RecordingViewModel: ObservableObject {
     /// the screen mid-set means it is not a usable recording.
     func stopCamera() {
         cameraSession.stop()
+        motionRecorder.stop()
         isCameraActive = false
         if isRecording {
             isRecording = false
+            _ = motionRecorder.endTake()
             frames = []
             pipeline = nil
         }
@@ -158,8 +169,10 @@ final class RecordingViewModel: ObservableObject {
         takeID = UUID().uuidString
         takeCreatedAt = Date()
         takeDevice = Self.deviceInfo()
+        takeMotion = nil
         isRecording = true
         startCamera()
+        motionRecorder.beginTake()
     }
 
     func stop() {
@@ -170,12 +183,14 @@ final class RecordingViewModel: ObservableObject {
         guard isRecording, let setup else { return }
         isRecording = false
         pipeline = nil
+        let buffered = motionRecorder.endTake()
 
         guard let last = frames.last else {
             errorMessage = "No frames were recorded, nothing to save."
             frames = []
             return
         }
+        takeMotion = Self.motionStream(from: buffered, originPresentationTime: originPresentationTime)
         pendingTake = PendingTake(
             id: takeID,
             kind: setup.kind,
@@ -190,6 +205,7 @@ final class RecordingViewModel: ObservableObject {
         guard !isSaving else { return }
         pendingTake = nil
         frames = []
+        takeMotion = nil
         setup = nil
     }
 
@@ -230,7 +246,8 @@ final class RecordingViewModel: ObservableObject {
             notes: setup.notes,
             device: device,
             live: LiveResult(reps: liveReps, rejectedReps: liveRejectedReps, classifier: liveClassifier),
-            frames: frames
+            frames: frames,
+            motion: takeMotion
         )
 
         errorMessage = nil
@@ -246,6 +263,7 @@ final class RecordingViewModel: ObservableObject {
                 case .success:
                     self.pendingTake = nil
                     self.frames = []
+                    self.takeMotion = nil
                     self.setup = nil
                     self.publish(summaries)
                 case .failure(let error):
@@ -336,6 +354,33 @@ final class RecordingViewModel: ObservableObject {
         if elapsed >= Self.maxDuration {
             finishRecording(automatically: true)
         }
+    }
+
+    // MARK: - Motion
+
+    /// Puts the buffered samples on the pose timeline. `CMDeviceMotion`
+    /// timestamps and the camera's `CMSampleBuffer` presentation times are
+    /// both host-clock seconds since boot, so a sample's `t` is just its
+    /// timestamp minus the first recorded frame's presentation time. `t` can
+    /// be slightly negative for samples taken between Start and that frame.
+    /// nil when the first frame had no presentation time or nothing was
+    /// buffered (no motion hardware).
+    private static func motionStream(
+        from samples: [MotionRecorder.Sample],
+        originPresentationTime: TimeInterval?
+    ) -> MotionStream? {
+        guard let origin = originPresentationTime, origin.isFinite, !samples.isEmpty else { return nil }
+        var stream = MotionStream(rateHz: MotionRecorder.updateRateHz)
+        stream.samples.reserveCapacity(samples.count * MotionStream.stride)
+        for sample in samples {
+            stream.append(
+                t: sample.timestamp - origin,
+                userAcceleration: sample.userAcceleration,
+                rotationRate: sample.rotationRate,
+                gravity: sample.gravity
+            )
+        }
+        return stream.sampleCount > 0 ? stream : nil
     }
 
     // MARK: - Device

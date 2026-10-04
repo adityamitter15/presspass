@@ -21,6 +21,8 @@ Everything is recorded with the in-app recorder (Workout tab, Data collection mo
 | `mid` | 1.0 to 1.5 m |
 | `far` | 1.8 to 2.5 m |
 
+Once a take has started, do not touch or move the phone until you stop it, except in the `phone_moved` cheat takes: the recorder also stores the phone's own motion, and a knock or a nudge would show up in it. Note what kind of floor the session is on in the notes field (for example carpet, wooden floorboards, concrete, yoga mat), because floor type matters for the motion data.
+
 ## What counts as a valid rep
 
 Use this one definition for every count you type in:

@@ -99,6 +99,10 @@ public struct RecordedSession: Codable, Equatable {
     /// while they entered `trueReps`.
     public var live: LiveResult?
     public var frames: [RecordedFrame]
+    /// The phone's own motion during the take, on the same timeline as
+    /// `frames[].pts`. nil when it was not recorded (early files, or a device
+    /// without motion sensors).
+    public var motion: MotionStream?
 
     public init(
         schema: Int = RecordedSession.currentSchema,
@@ -112,7 +116,8 @@ public struct RecordedSession: Codable, Equatable {
         notes: String,
         device: DeviceInfo,
         live: LiveResult?,
-        frames: [RecordedFrame]
+        frames: [RecordedFrame],
+        motion: MotionStream? = nil
     ) {
         self.schema = schema
         self.id = id
@@ -126,6 +131,7 @@ public struct RecordedSession: Codable, Equatable {
         self.device = device
         self.live = live
         self.frames = frames
+        self.motion = motion
     }
 }
 
@@ -288,6 +294,76 @@ public struct RecordedFrame: Codable, Equatable {
 
     /// Rounds to `places` decimals, returned as a Double so JSON prints the
     /// short form. Negative zero is normalised to zero.
+    private static func rounded(_ value: Double, places: Int) -> Double {
+        let scale = pow(10, Double(places))
+        let result = (value * scale).rounded() / scale
+        return result == 0 ? 0 : result
+    }
+}
+
+/// The phone's device motion during a take, as one flat array so the JSON
+/// stays small. Plain numbers only: the app converts from Core Motion.
+public struct MotionStream: Codable, Equatable {
+    /// Values per sample: `[t, ax, ay, az, rx, ry, rz, gx, gy, gz]`.
+    public static let stride = 10
+
+    /// Requested update rate. Real spacing varies, read `t` for the truth.
+    public var rateHz: Double
+    /// `stride` values per sample. `t` is seconds on the same timeline as
+    /// `RecordedFrame.pts`; `a*` is user acceleration in g, `r*` rotation rate
+    /// in rad/s and `g*` the gravity vector in g, all in the device frame.
+    public var samples: [Double]
+
+    public init(rateHz: Double, samples: [Double] = []) {
+        self.rateHz = rateHz
+        self.samples = samples
+    }
+
+    /// Whole samples held. A trailing partial sample is not counted.
+    public var sampleCount: Int {
+        samples.count / Self.stride
+    }
+
+    /// Appends one sample, rounding `t` to 6 decimals and the sensor values
+    /// to 5. A sample holding a non-finite number is dropped, since JSON
+    /// cannot represent it.
+    public mutating func append(
+        t: Double,
+        userAcceleration: (x: Double, y: Double, z: Double),
+        rotationRate: (x: Double, y: Double, z: Double),
+        gravity: (x: Double, y: Double, z: Double)
+    ) {
+        let values = [
+            t,
+            userAcceleration.x, userAcceleration.y, userAcceleration.z,
+            rotationRate.x, rotationRate.y, rotationRate.z,
+            gravity.x, gravity.y, gravity.z,
+        ]
+        guard values.allSatisfy(\.isFinite) else { return }
+        samples.append(Self.rounded(values[0], places: 6))
+        for value in values.dropFirst() {
+            samples.append(Self.rounded(value, places: 5))
+        }
+    }
+
+    /// The sample at `index`, or nil when it is past the end.
+    public func sample(at index: Int) -> (
+        t: Double,
+        userAcceleration: (x: Double, y: Double, z: Double),
+        rotationRate: (x: Double, y: Double, z: Double),
+        gravity: (x: Double, y: Double, z: Double)
+    )? {
+        guard index >= 0, index < sampleCount else { return nil }
+        let base = index * Self.stride
+        return (
+            t: samples[base],
+            userAcceleration: (samples[base + 1], samples[base + 2], samples[base + 3]),
+            rotationRate: (samples[base + 4], samples[base + 5], samples[base + 6]),
+            gravity: (samples[base + 7], samples[base + 8], samples[base + 9])
+        )
+    }
+
+    /// Rounds to `places` decimals. Negative zero is normalised to zero.
     private static func rounded(_ value: Double, places: Int) -> Double {
         let scale = pow(10, Double(places))
         let result = (value * scale).rounded() / scale

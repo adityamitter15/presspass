@@ -462,6 +462,101 @@ struct RecordedSessionTests {
         }
     }
 
+    // MARK: - Motion
+
+    private func sampleMotion() -> MotionStream {
+        var motion = MotionStream(rateHz: 100)
+        motion.append(t: 0.01, userAcceleration: (0.001, -0.002, 0.003), rotationRate: (0.1, 0.2, -0.3), gravity: (0, -0.5, -0.866))
+        motion.append(t: 0.02, userAcceleration: (0.004, -0.005, 0.006), rotationRate: (0.4, 0.5, -0.6), gravity: (0, -0.5, -0.866))
+        return motion
+    }
+
+    @Test("a session with motion survives JSON and compares equal")
+    func motionRoundTrip() throws {
+        var session = makeSession(frames: [])
+        session.motion = sampleMotion()
+
+        let data = try session.jsonData()
+        let text = try #require(String(data: data, encoding: .utf8))
+        #expect(text.contains("\"motion\""))
+        #expect(text.contains("\"rateHz\":100"))
+
+        let decoded = try RecordedSession.decode(data)
+        #expect(decoded == session)
+        #expect(decoded.schema == 2)
+        #expect(decoded.motion?.sampleCount == 2)
+    }
+
+    @Test("a file without motion decodes with motion nil, and nil motion is not written")
+    func motionAbsent() throws {
+        let session = makeSession(frames: [])
+        #expect(session.motion == nil)
+
+        let data = try session.jsonData()
+        let text = try #require(String(data: data, encoding: .utf8))
+        #expect(!text.contains("motion"))
+        #expect(try RecordedSession.decode(data).motion == nil)
+    }
+
+    @Test("motion values are stored at the stated precision")
+    func motionRounding() throws {
+        var motion = MotionStream(rateHz: 100)
+        motion.append(
+            t: 12345.123456789,
+            userAcceleration: (0.123456789, -0.0000001, 1.0000049),
+            rotationRate: (-0.987654321, 0, 2.5),
+            gravity: (0.0000049, -0.0000051, -0.99999999)
+        )
+        let sample = try #require(motion.sample(at: 0))
+        #expect(sample.t == 12345.123457)
+        #expect(sample.userAcceleration.x == 0.12346)
+        #expect(sample.userAcceleration.y == 0)
+        #expect(sample.userAcceleration.y.sign == .plus)
+        #expect(sample.userAcceleration.z == 1.0)
+        #expect(sample.rotationRate.x == -0.98765)
+        #expect(sample.rotationRate.z == 2.5)
+        #expect(sample.gravity.x == 0)
+        #expect(sample.gravity.y == -0.00001)
+        #expect(sample.gravity.z == -1.0)
+    }
+
+    @Test("a sample with a non-finite value is dropped")
+    func motionNonFinite() {
+        var motion = MotionStream(rateHz: 100)
+        motion.append(t: 0, userAcceleration: (.nan, 0, 0), rotationRate: (0, 0, 0), gravity: (0, 0, 0))
+        motion.append(t: 0, userAcceleration: (0, 0, 0), rotationRate: (.infinity, 0, 0), gravity: (0, 0, 0))
+        #expect(motion.sampleCount == 0)
+        #expect(motion.samples.isEmpty)
+    }
+
+    @Test("sampleCount and sample(at:) read the flat layout")
+    func motionAccessors() throws {
+        let motion = sampleMotion()
+        #expect(MotionStream.stride == 10)
+        #expect(motion.samples.count == 20)
+        #expect(motion.sampleCount == 2)
+
+        let second = try #require(motion.sample(at: 1))
+        #expect(second.t == 0.02)
+        #expect(second.userAcceleration == (0.004, -0.005, 0.006))
+        #expect(second.rotationRate == (0.4, 0.5, -0.6))
+        #expect(second.gravity == (0, -0.5, -0.866))
+
+        #expect(motion.sample(at: 2) == nil)
+        #expect(motion.sample(at: -1) == nil)
+    }
+
+    @Test("a ragged samples array counts whole samples only")
+    func motionRagged() throws {
+        // 2 whole samples and 4 stray values, as a truncated file might hold.
+        let motion = MotionStream(rateHz: 100, samples: Array(repeating: 0.5, count: 24))
+        #expect(motion.sampleCount == 2)
+        #expect(motion.sample(at: 1) != nil)
+        #expect(motion.sample(at: 2) == nil)
+        #expect(MotionStream(rateHz: 100, samples: Array(repeating: 0.5, count: 9)).sampleCount == 0)
+        #expect(MotionStream(rateHz: 100, samples: Array(repeating: 0.5, count: 9)).sample(at: 0) == nil)
+    }
+
     // MARK: - Size
 
     @Test("a 30 fps session stays well under the size budget")

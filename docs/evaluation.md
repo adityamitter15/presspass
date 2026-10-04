@@ -115,7 +115,7 @@ Nothing is tuned on the test split. If it is used for a decision, say so alongsi
 Written to the output directory:
 
 - `results.json`: all metrics, intervals, per-condition tables, the `pipeline` block from `predictions.json`, take counts by kind, and `synthetic`.
-- `report.md`: headline table, cheat table, negatives, fidelity, per-condition tables and the ten worst valid sets.
+- `report.md`: headline table, cheat table, negatives, fidelity, per-condition tables and the ten worst miscounted valid sets (a single line saying so when none was miscounted).
 - `count_error_hist.png`, `pred_vs_true.png`, `per_condition.png`.
 
 `synthetic` is true when every take has subject `SYN`. The report then starts with a bold warning that the numbers exercise the harness and say nothing about real accuracy, and the figure titles carry the same warning.

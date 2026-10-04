@@ -165,3 +165,13 @@ def test_worst_takes_are_ranked_and_limited():
     assert worst[0]["true"] == 10 and worst[0]["predicted"] == 21
     assert worst[0]["tags"]["cheat"] == "none"
     assert [w["file"] for w in worst][-1] == "t02.json"
+
+
+def test_worst_takes_leave_out_exact_counts():
+    takes = [make_take("exact", 6, 6), make_take("off", 6, 5), make_take("cheat", 0, 9, cheat="half_reps")]
+    assert [w["file"] for w in metrics.worst_takes(takes)] == ["off.json"]
+
+
+def test_worst_takes_are_empty_when_every_set_is_exact():
+    takes = [make_take("a", 5, 5), make_take("b", 0, 0), make_take("n", 0, 3, kind="negative")]
+    assert metrics.worst_takes(takes) == []

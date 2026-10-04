@@ -276,8 +276,13 @@ def condition_tables(takes: Sequence[Take], alpha: float = ALPHA) -> dict:
 # ---------------------------------------------------------------- worst takes
 
 def worst_takes(takes: Sequence[Take], n: int = 10) -> list[dict]:
-    """The ``n`` valid sets with the largest ``abs(p - y)``, ties by file name."""
-    ranked = sorted(valid_sets(takes), key=lambda t: (-abs(t["predictedReps"] - t["trueReps"]), t.get("file", "")))
+    """The ``n`` valid sets with the largest ``abs(p - y)``, ties by file name.
+
+    Only miscounted sets (``abs(p - y) >= 1``) are listed, so the result is
+    empty when every valid set was counted exactly.
+    """
+    miscounted = [t for t in valid_sets(takes) if abs(t["predictedReps"] - t["trueReps"]) >= 1]
+    ranked = sorted(miscounted, key=lambda t: (-abs(t["predictedReps"] - t["trueReps"]), t.get("file", "")))
     return [
         {
             "file": t.get("file"),

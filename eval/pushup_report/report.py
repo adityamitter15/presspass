@@ -291,7 +291,7 @@ def render_section(name: str, section: Mapping, alpha: float, synthetic: bool) -
     lines += ["### Worst takes", ""]
     worst = section["worst_takes"]
     if not worst:
-        lines += ["No valid sets.", ""]
+        lines += ["No valid set was miscounted.", ""]
     else:
         lines += ["| File | True | Predicted | Tags |", "|---|---|---|---|"]
         for item in worst:

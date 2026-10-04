@@ -149,3 +149,13 @@ def test_unassigned_takes_are_counted():
 def test_title_option(tmp_path):
     out = run_report(tmp_path, real_predictions(), None, "--title", "My run")
     assert (out / "report.md").read_text().startswith("# My run")
+
+
+def test_no_miscounted_set_gives_a_line_and_an_empty_list(tmp_path):
+    predictions = make_predictions([make_take("e1", 5, 5), make_take("e2", 7, 7, created="2026-07-05T09:00:00Z")])
+    out = run_report(tmp_path, predictions)
+    results = json.loads((out / "results.json").read_text())
+    assert results["sections"]["all"]["worst_takes"] == []
+    text = (out / "report.md").read_text()
+    assert "No valid set was miscounted." in text
+    assert "| File | True | Predicted | Tags |" not in text

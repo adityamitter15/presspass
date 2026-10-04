@@ -7,8 +7,9 @@ import os.log
 
 /// Owns the front-camera capture pipeline and runs BlazePose (MediaPipe
 /// `PoseLandmarker`) body-pose detection on every frame. Delivers
-/// `PoseFrame`s via `onFrame`, called on `deliveryQueue` (main by default)
-/// so callers can update UI state directly without an extra hop.
+/// `PoseFrame`s via `onFrame` and the detector's raw output via
+/// `onRawFrame`, both called on `deliveryQueue` (main by default) so callers
+/// can update UI state directly without an extra hop.
 final class CameraPoseSession: NSObject {
     enum SessionError: Error {
         case cameraUnavailable
@@ -19,6 +20,11 @@ final class CameraPoseSession: NSObject {
     /// even when no body was detected (with an empty `joints` dict) so
     /// callers can drive a "no body detected" placement hint.
     var onFrame: ((PoseFrame) -> Void)?
+
+    /// Called with the same frames as `onFrame`, just before it, carrying the
+    /// detector's raw landmarks (image and world) and the camera
+    /// presentation time. Used by the DEBUG recorder.
+    var onRawFrame: ((RawPoseFrame) -> Void)?
 
     private let captureSession = AVCaptureSession()
     private let videoOutput = AVCaptureVideoDataOutput()
@@ -164,17 +170,18 @@ extension CameraPoseSession: AVCaptureVideoDataOutputSampleBufferDelegate {
         from connection: AVCaptureConnection
     ) {
         let timestamp = Date().timeIntervalSince(captureStartDate)
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let presentationSeconds: TimeInterval? = presentationTime.isNumeric ? presentationTime.seconds : nil
 
         guard let landmarker = poseLandmarker else {
             if !didLogLandmarkerFailure {
                 didLogLandmarkerFailure = true
                 os_log(.error, log: Self.log, "no PoseLandmarker available; delivering empty pose frames")
             }
-            deliver(PoseFrame(timestamp: timestamp, joints: [:]))
+            deliver(RawPoseFrame(timestamp: timestamp, presentationTime: presentationSeconds, landmarks: nil, worldLandmarks: nil))
             return
         }
 
-        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let timestampMs = Int((presentationTime.seconds * 1000).rounded())
         if let last = lastSubmittedTimestampMs, timestampMs <= last {
             // Video mode requires strictly increasing timestamps; drop this
@@ -184,20 +191,26 @@ extension CameraPoseSession: AVCaptureVideoDataOutputSampleBufferDelegate {
         lastSubmittedTimestampMs = timestampMs
 
         guard let mpImage = try? MPImage(sampleBuffer: sampleBuffer) else {
-            deliver(PoseFrame(timestamp: timestamp, joints: [:]))
+            deliver(RawPoseFrame(timestamp: timestamp, presentationTime: presentationSeconds, landmarks: nil, worldLandmarks: nil))
             return
         }
 
         let result = try? landmarker.detect(videoFrame: mpImage, timestampInMilliseconds: timestampMs)
-        guard let landmarks = result?.landmarks.first else {
-            deliver(PoseFrame(timestamp: timestamp, joints: [:]))
-            return
-        }
-
-        deliver(BlazePoseMapping.poseFrame(timestamp: timestamp, landmarks: landmarks.map(RawLandmark.init)))
+        deliver(RawPoseFrame(
+            timestamp: timestamp,
+            presentationTime: presentationSeconds,
+            landmarks: result?.landmarks.first?.map(RawLandmark.init),
+            worldLandmarks: result?.worldLandmarks.first?.map(RawLandmark.init)
+        ))
     }
 
-    private func deliver(_ frame: PoseFrame) {
-        deliveryQueue.async { [onFrame] in onFrame?(frame) }
+    /// Derives the `PoseFrame` from the raw frame and hands both to the
+    /// delivery queue in one block, raw first.
+    private func deliver(_ raw: RawPoseFrame) {
+        let frame = BlazePoseMapping.poseFrame(from: raw)
+        deliveryQueue.async { [onRawFrame, onFrame] in
+            onRawFrame?(raw)
+            onFrame?(frame)
+        }
     }
 }

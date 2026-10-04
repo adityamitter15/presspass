@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import Foundation
 import PushupCore
+import UIKit
 
 /// Coordinates the camera/pose pipeline, feature extraction, classifier,
 /// and rep counter for one workout session, and publishes the state
@@ -17,7 +18,13 @@ final class WorkoutViewModel: ObservableObject {
     @Published private(set) var rejectedReps: Int = 0
     @Published private(set) var currentLabel: PoseLabel = .notPushup
     @Published private(set) var ignoreReason: RepCounterIgnoreReason = .none
-    @Published private(set) var isRunning: Bool = false
+    @Published private(set) var isRunning: Bool = false {
+        // The phone sits untouched on the floor during a set, so it must not
+        // auto-lock while a workout is running. Every path that ends a
+        // workout (finish, view disappearing, camera failure) clears
+        // `isRunning`, which restores the default.
+        didSet { UIApplication.shared.isIdleTimerDisabled = isRunning }
+    }
     @Published var cameraErrorMessage: String?
 
     #if DEBUG

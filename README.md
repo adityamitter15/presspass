@@ -159,31 +159,22 @@ target only; does not touch `MonitorExtension/`, `ShieldConfigExtension/`,
   test minutes" button (unchanged behavior from the old stub) lives at the
   bottom of the idle Workout screen alongside a "Data collection mode"
   link, so it's still reachable for manual metering-flow testing.
-- **Data-collection mode** (`RecordingView.swift`, DEBUG-only, entire file
+- **Data-collection mode** (`App/Workout/Recording/`, DEBUG-only, every file
   gated behind `#if DEBUG` so it compiles out of Release builds) — records
-  a labeled landmark session (label picker: up / down / not_pushup), writes
-  it as one JSON file per session to the app's Documents directory, and
-  lists saved sessions with a `ShareLink` to export each one. Schema is the
-  exact contract `training/dataset.py` reads:
-  ```json
-  {
-    "label": "up",
-    "source": "free text",
-    "frames": [ { "t": 0.033, "joints": { "leftShoulder": [x, y, c], "...": "..." } } ]
-  }
-  ```
-  `t` is seconds since the recording started (measured on-device with a
-  wall clock, independent of the camera session's own internal clock);
-  `joints` keys are `JointName.rawValue` strings; a joint is simply omitted
-  from a frame if the pose detector didn't detect it that frame, matching
-  `training/README.md`'s documented contract. To use it: run the app in
-  Xcode (DEBUG configuration) on a physical iPhone, open Workout →
-  "Data collection mode", pick a label, hold the pose, Stop recording, then
-  either `ShareLink` the file off-device into `training/data/raw/` or
-  AirDrop/Files-app it there directly, then follow `training/README.md`
-  steps 3-5 (`train.py`, `evaluate.py`, copy the exported `.mlmodel` to
-  `App/PushupPoseClassifier.mlmodel`, add it to the Xcode project — once
-  present, `PoseClassifierFactory` picks it up automatically).
+  evaluation takes as raw pose landmark streams: full pushup sets, negatives
+  (clips in which nothing should count) and held poses, each with a
+  human-entered true rep count, condition tags (lighting, distance,
+  clothing, tempo, variant, cheat) and an anonymous subject id. The app's
+  own count is stored alongside but hidden until the take is saved, so the
+  true count is entered blind. Takes are written to `Documents/Recordings/`
+  in the versioned schema described in `docs/data-format.md`
+  (`RecordedSession` in `PushupCore`), which an offline tool can replay
+  through the same `PushupPipeline` the app runs live. The recording
+  procedure is `docs/recording-protocol.md`. "Export all" zips the
+  directory for sharing. To use it: run the app in Xcode (DEBUG
+  configuration) on a physical iPhone and open Workout → "Data collection
+  mode". The older per-label `joints` format that `training/dataset.py`
+  reads is no longer written by the app.
 
 ### Deviations from spec
 

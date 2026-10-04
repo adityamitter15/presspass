@@ -58,6 +58,12 @@ public enum BlazePoseMapping {
         return PoseFrame(timestamp: timestamp, joints: joints)
     }
 
+    /// Builds a `PoseFrame` from a recorded or live raw frame. A frame with
+    /// no landmarks (nothing detected) yields a frame with no joints.
+    public static func poseFrame(from raw: RawPoseFrame) -> PoseFrame {
+        poseFrame(timestamp: raw.timestamp, landmarks: raw.landmarks ?? [])
+    }
+
     /// Converts one landmark into a `JointPoint` in `PoseFrame`'s
     /// convention, or `nil` if its visibility is too low to trust.
     private static func jointPoint(_ landmark: RawLandmark) -> JointPoint? {

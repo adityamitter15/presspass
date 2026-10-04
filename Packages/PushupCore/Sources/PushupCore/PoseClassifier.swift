@@ -2,7 +2,7 @@ import CoreML
 import Foundation
 
 /// Coarse pose classification for one frame's feature vector.
-public enum PoseLabel: String {
+public enum PoseLabel: String, Codable {
     case up
     case down
     case notPushup = "not_pushup"

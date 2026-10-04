@@ -94,6 +94,65 @@ enum SyntheticPose {
         }
     }
 
+    // MARK: - Raw landmarks
+
+    /// Landmark indices `BlazePoseMapping` reads, mirrored here so the tests
+    /// do not depend on its private table.
+    private static let blazePoseIndex: [JointName: Int] = [
+        .nose: 0,
+        .leftShoulder: 11, .rightShoulder: 12,
+        .leftElbow: 13, .rightElbow: 14,
+        .leftWrist: 15, .rightWrist: 16,
+        .leftHip: 23, .rightHip: 24,
+        .leftKnee: 25, .rightKnee: 26,
+        .leftAnkle: 27, .rightAnkle: 28,
+    ]
+
+    /// Inverse of `BlazePoseMapping`: 33 landmarks in BlazePose convention
+    /// (y flipped back to top-left origin), the 13 mapped indices filled from
+    /// `joints` and every other index a low-visibility placeholder. `neck`
+    /// and `root` are not written, the mapping synthesises them. A joint that
+    /// is absent from `joints` gets the placeholder too, so the mapping omits
+    /// it again.
+    static func rawLandmarks(from joints: [JointName: JointPoint]) -> [RawLandmark] {
+        let placeholder = RawLandmark(x: 0.5, y: 0.5, z: 0, visibility: 0.02, presence: 0.02)
+        var landmarks = [RawLandmark](repeating: placeholder, count: 33)
+        for (name, index) in blazePoseIndex {
+            guard let point = joints[name] else { continue }
+            landmarks[index] = RawLandmark(
+                x: Float(point.x),
+                y: Float(1 - point.y),
+                z: 0,
+                visibility: point.confidence,
+                presence: 1
+            )
+        }
+        return landmarks
+    }
+
+    /// 33 plausible world landmarks in metres, only so tests have something
+    /// to round-trip. Not derived from the pose geometry.
+    static func worldLandmarks(seed: Int) -> [RawLandmark] {
+        (0..<33).map { index in
+            let v = Float(index + seed)
+            return RawLandmark(x: sin(v) * 0.4, y: cos(v) * 0.4, z: sin(v * 0.5) * 0.2, visibility: nil, presence: nil)
+        }
+    }
+
+    /// Raw frames for a synthetic pose sequence. The presentation time is the
+    /// frame timestamp plus a fixed offset, as a camera clock would differ
+    /// from the session clock.
+    static func rawFrames(from frames: [PoseFrame], presentationOffset: TimeInterval = 5000) -> [RawPoseFrame] {
+        frames.enumerated().map { index, frame in
+            RawPoseFrame(
+                timestamp: frame.timestamp,
+                presentationTime: frame.timestamp + presentationOffset,
+                landmarks: rawLandmarks(from: frame.joints),
+                worldLandmarks: worldLandmarks(seed: index)
+            )
+        }
+    }
+
     /// Angle in degrees at `vertex` between the rays to `a` and `b`.
     static func angleDegrees(vertex: JointPoint, _ a: JointPoint, _ b: JointPoint) -> Double {
         let v1 = (x: Double(a.x - vertex.x), y: Double(a.y - vertex.y))

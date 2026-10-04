@@ -251,6 +251,11 @@ struct WorkoutView: View {
             }
             .font(.footnote)
 
+            NavigationLink("Gate spike") {
+                GateSpikeView()
+            }
+            .font(.footnote)
+
             if let debugMessage {
                 Text(debugMessage)
                     .font(.footnote)

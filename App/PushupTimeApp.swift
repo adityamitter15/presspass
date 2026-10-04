@@ -27,5 +27,8 @@ struct RootTabView: View {
                     Label("Setup", systemImage: "gearshape.fill")
                 }
         }
+        #if DEBUG
+        .gateSpikePresenter()
+        #endif
     }
 }

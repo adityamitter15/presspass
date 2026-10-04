@@ -2,7 +2,7 @@ import ManagedSettings
 
 // Handles taps on the shield's buttons. Opening another app from a shield
 // action isn't supported by the API, so the correct UX is to close the
-// shielded app — the user then switches to PushupTime themselves to start a
+// shielded app. The user then switches to PushupTime themselves to start a
 // session.
 class ShieldActionExtension: ShieldActionDelegate {
 

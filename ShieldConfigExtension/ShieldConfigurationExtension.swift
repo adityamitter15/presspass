@@ -3,8 +3,8 @@ import ManagedSettingsUI
 import UIKit
 
 // Overrides the system shield shown when a metered app/category runs out of
-// earned time. Same look across all four override points — application,
-// application category, web domain, and web domain category — since the
+// earned time. Same look across all four override points (application,
+// application category, web domain, and web domain category) since the
 // messaging ("do pushups to earn more") applies uniformly.
 class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 

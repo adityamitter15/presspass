@@ -6,7 +6,7 @@ import ManagedSettings
 /// Drives the earned-time session: lifts the shield, schedules a
 /// `DeviceActivity` monitoring window with one threshold event per minute of
 /// balance, and hands the ledger bookkeeping to `DeviceActivityMonitorExtension`
-/// as those thresholds fire. Main app only — this is where the per-minute
+/// as those thresholds fire. Main app only: this is where the per-minute
 /// metering "just works" even if the app gets killed mid-session.
 enum MeteringCoordinator {
 
@@ -70,7 +70,7 @@ enum MeteringCoordinator {
         do {
             try DeviceActivityCenter().startMonitoring(activityName, during: schedule, events: events)
         } catch {
-            // Session failed to start — restore the shield rather than
+            // Session failed to start: restore the shield rather than
             // leaving the user with unmetered free access.
             if let selection = SharedStore.loadSelection() {
                 ShieldController.applyShield(for: selection)

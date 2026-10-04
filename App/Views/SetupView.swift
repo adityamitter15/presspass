@@ -60,7 +60,7 @@ struct SetupView: View {
         case .notDetermined:
             authorizationStatusText = "Not requested"
         case .denied:
-            authorizationStatusText = "Denied — enable in Settings"
+            authorizationStatusText = "Denied. Enable in Settings"
         case .approved:
             authorizationStatusText = "Approved"
         @unknown default:

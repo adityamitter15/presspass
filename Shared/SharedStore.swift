@@ -74,7 +74,7 @@ enum SharedStore {
 }
 
 /// Alias kept for call sites (e.g. the workout stub's debug credit button)
-/// that refer to the ledger as "BalanceStore" — same backing store as
+/// that refer to the ledger as "BalanceStore": same backing store as
 /// `SharedStore`, just a friendlier name where the code is purely about the
 /// earned-minutes balance.
 typealias BalanceStore = SharedStore

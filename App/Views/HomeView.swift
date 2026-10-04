@@ -72,7 +72,7 @@ struct HomeView: View {
             try MeteringCoordinator.startEarnedSession()
             refresh()
         } catch MeteringCoordinator.MeteringError.noBalance {
-            errorMessage = "Do some pushups first — you have no earned minutes."
+            errorMessage = "Do some pushups first. You have no earned minutes."
         } catch MeteringCoordinator.MeteringError.noSelectionSaved {
             errorMessage = "Pick which apps to protect in Setup first."
         } catch {

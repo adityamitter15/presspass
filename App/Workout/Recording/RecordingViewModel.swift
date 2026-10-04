@@ -13,6 +13,9 @@ struct RecordingSetup {
     var tags: RecordedSession.Tags
     var poseLabel: PoseLabel
     var notes: String
+    /// Whether to save the camera video of this take as well. Ignored when
+    /// the pose source has no camera.
+    var saveVideo: Bool
 }
 
 /// A finished take waiting for the user to save or discard it. Holds only
@@ -51,8 +54,8 @@ struct RecordingTotals: Equatable {
 }
 
 /// Drives the DEBUG recorder screen. Owns the camera session, records the
-/// raw landmark stream and the phone's own motion while a take is running,
-/// and runs the same pipeline
+/// raw landmark stream, the phone's own motion and (optionally) the camera
+/// video while a take is running, and runs the same pipeline
 /// the workout screen uses so the app's count can be stored next to the
 /// human-entered one. Camera callbacks arrive on the main queue; encoding
 /// and file work run on a utility queue and publish back on main.
@@ -67,11 +70,17 @@ final class RecordingViewModel: ObservableObject {
     @Published private(set) var recordedFrameCount = 0
     @Published private(set) var elapsedSeconds: TimeInterval = 0
     @Published private(set) var pendingTake: PendingTake?
+    /// True between Stop and the take becoming pending, while the video file
+    /// is being completed. Nothing is shown for it beyond a status line.
+    @Published private(set) var isFinalizing = false
     @Published private(set) var isSaving = false
     @Published private(set) var saved: [RecordingSummary] = []
     @Published private(set) var totals = RecordingTotals()
     @Published private(set) var isExporting = false
     @Published var errorMessage: String?
+    /// Something that did not stop a take being saved, such as a video that
+    /// could not be kept. Never carries a count.
+    @Published private(set) var warningMessage: String?
 
     private let poseSource: PoseSource
     private let motionRecorder = MotionRecorder()
@@ -94,12 +103,22 @@ final class RecordingViewModel: ObservableObject {
     private var takeDevice: DeviceInfo?
     private var takeMotion: MotionStream?
 
+    // The video of the active or pending take. The writer is fed from the
+    // camera's processing queue and does its own locking; everything else
+    // here is main-queue state.
+    private var takeVideoWriter: VideoTakeWriter?
+    private var takeVideoURL: URL?
+    private var takeVideoResult: Result<VideoTakeWriter.Summary, Error>?
+
     /// Whether this device can supply device motion, shown as a status line.
     let isMotionAvailable: Bool
+    /// Whether takes can carry video: only with a real camera, not a replay.
+    let isVideoAvailable: Bool
 
     init(poseSource: PoseSource = AppEnvironment.current.makePoseSource()) {
         self.poseSource = poseSource
         isMotionAvailable = motionRecorder.isAvailable
+        isVideoAvailable = poseSource is CameraPoseSession
         poseSource.onRawFrame = { [weak self] raw in
             self?.handle(raw: raw)
         }
@@ -148,14 +167,16 @@ final class RecordingViewModel: ObservableObject {
             _ = motionRecorder.endTake()
             frames = []
             pipeline = nil
+            discardTakeVideo()
         }
     }
 
     // MARK: - Recording
 
     func start(setup: RecordingSetup) {
-        guard !isRecording, pendingTake == nil else { return }
+        guard !isRecording, !isFinalizing, pendingTake == nil else { return }
         errorMessage = nil
+        warningMessage = nil
         self.setup = setup
         frames = []
         recordedFrameCount = 0
@@ -172,6 +193,7 @@ final class RecordingViewModel: ObservableObject {
         takeCreatedAt = Date()
         takeDevice = Self.deviceInfo()
         takeMotion = nil
+        beginTakeVideo(if: setup.saveVideo)
         isRecording = true
         startCamera()
         motionRecorder.beginTake()
@@ -186,20 +208,44 @@ final class RecordingViewModel: ObservableObject {
         isRecording = false
         pipeline = nil
         let buffered = motionRecorder.endTake()
+        // Stop feeding the writer first. A frame the camera queue is handing
+        // over right now is harmless: the writer ignores it once finished.
+        poseSource.onSampleBuffer = nil
 
         guard let last = frames.last else {
             errorMessage = "No frames were recorded, nothing to save."
             frames = []
+            discardTakeVideo()
             return
         }
         takeMotion = Self.motionStream(from: buffered, originPresentationTime: originPresentationTime)
-        pendingTake = PendingTake(
+        let take = PendingTake(
             id: takeID,
             kind: setup.kind,
             frameCount: frames.count,
             duration: last.t,
             stoppedAutomatically: automatically
         )
+
+        guard let writer = takeVideoWriter else {
+            pendingTake = take
+            return
+        }
+        // Hold the take until the video file is complete, so the save sheet
+        // never opens on a half-written file.
+        isFinalizing = true
+        let videoURL = takeVideoURL
+        writer.finish { [weak self] result in
+            guard let self else {
+                if let videoURL { try? FileManager.default.removeItem(at: videoURL) }
+                return
+            }
+            guard self.isFinalizing, self.takeID == take.id else { return }
+            self.isFinalizing = false
+            self.takeVideoWriter = nil
+            self.takeVideoResult = result
+            self.pendingTake = take
+        }
     }
 
     /// Throws the pending take away.
@@ -209,6 +255,62 @@ final class RecordingViewModel: ObservableObject {
         frames = []
         takeMotion = nil
         setup = nil
+        discardTakeVideo()
+    }
+
+    // MARK: - Video
+
+    /// Creates this take's writer and starts feeding it camera frames.
+    private func beginTakeVideo(if wanted: Bool) {
+        discardTakeVideo()
+        guard wanted, isVideoAvailable else { return }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("take-\(takeID).mp4")
+        let writer = VideoTakeWriter(outputURL: url)
+        takeVideoWriter = writer
+        takeVideoURL = url
+        // A method reference, not a closure written here: this class is
+        // main-actor isolated and the camera calls this on its own queue.
+        // The writer does its own locking.
+        poseSource.onSampleBuffer = writer.append
+    }
+
+    /// Stops feeding the writer and throws away the take's video, including
+    /// the temporary file.
+    private func discardTakeVideo() {
+        poseSource.onSampleBuffer = nil
+        takeVideoWriter?.cancel()
+        takeVideoWriter = nil
+        if let url = takeVideoURL { try? FileManager.default.removeItem(at: url) }
+        takeVideoURL = nil
+        takeVideoResult = nil
+    }
+
+    /// What to store for the pending take's video, or why there is none.
+    /// `startPts` puts the video on the same clock as `frames[].pts`: both are
+    /// camera presentation times, so it is the video's first frame minus the
+    /// first recorded pose frame.
+    private func videoForSaving() -> (info: VideoInfo, url: URL)? {
+        guard let result = takeVideoResult, let url = takeVideoURL else { return nil }
+        switch result {
+        case .success(let summary):
+            guard let origin = originPresentationTime, origin.isFinite,
+                  summary.firstPresentationTime.isNumeric else {
+                warningMessage = "Saved without video: the camera gave no timestamp to line it up with."
+                return nil
+            }
+            let info = VideoInfo(
+                file: "",
+                width: summary.width,
+                height: summary.height,
+                codec: "h264",
+                frameCount: summary.frameCount,
+                startPts: summary.firstPresentationTime.seconds - origin
+            )
+            return (info, url)
+        case .failure(let error):
+            warningMessage = "Saved without video: \(error.localizedDescription)"
+            return nil
+        }
     }
 
     /// Writes the pending take. `trueReps` is the human-entered count: required
@@ -237,6 +339,14 @@ final class RecordingViewModel: ObservableObject {
             tags.variant = .na
             tags.cheat = .none
         }
+        warningMessage = nil
+        // Only keep the video if its file is still where the writer left it.
+        // A failed save moves it back, but if that was impossible it is gone.
+        var video = videoForSaving()
+        if let found = video, !FileManager.default.fileExists(atPath: found.url.path) {
+            warningMessage = "Saved without video: the video file was missing."
+            video = nil
+        }
         let session = RecordedSession(
             id: take.id,
             createdAt: RecordedSession.iso8601String(from: takeCreatedAt),
@@ -249,14 +359,16 @@ final class RecordingViewModel: ObservableObject {
             device: device,
             live: LiveResult(reps: liveReps, rejectedReps: liveRejectedReps, classifier: liveClassifier),
             frames: frames,
-            motion: takeMotion
+            motion: takeMotion,
+            video: video?.info
         )
+        let videoURL = video?.url
 
         errorMessage = nil
         isSaving = true
         let store = store
         ioQueue.async { [weak self] in
-            let result = Result { try store.save(session) }
+            let result = Result { try store.save(session, temporaryVideo: videoURL) }
             let summaries = store.list()
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -267,9 +379,13 @@ final class RecordingViewModel: ObservableObject {
                     self.frames = []
                     self.takeMotion = nil
                     self.setup = nil
+                    // The video file now lives in the recordings directory.
+                    self.takeVideoURL = nil
+                    self.takeVideoResult = nil
                     self.publish(summaries)
                 case .failure(let error):
                     // The take stays pending so the user can retry.
+                    self.warningMessage = nil
                     self.errorMessage = "Failed to save recording: \(error.localizedDescription)"
                 }
             }

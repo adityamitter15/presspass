@@ -32,6 +32,11 @@ reports/
 # Signed consent sheets and the name-to-label list: never published
 private/
 
+# Take videos are never committed (they stay in private/video/, see
+# scripts/pull_recordings.sh); these catch one copied in by mistake
+data/sessions/*.mp4
+data/sessions/*.mov
+
 # Evaluation tooling
 eval/.venv/
 .pytest_cache/

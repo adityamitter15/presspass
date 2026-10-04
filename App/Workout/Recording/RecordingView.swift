@@ -24,6 +24,7 @@ struct RecordingView: View {
     @AppStorage("recorder.cheat") private var cheat: RecordedSession.Tags.Cheat = .none
     @AppStorage("recorder.poseLabel") private var poseLabel: PoseLabel = .up
     @AppStorage("recorder.notes") private var notes = ""
+    @AppStorage("recorder.saveVideo") private var saveVideo = true
 
     @State private var pendingDeleteURL: URL?
     @State private var exportFile: ExportFile?
@@ -40,6 +41,11 @@ struct RecordingView: View {
                 if let errorMessage = viewModel.errorMessage {
                     Section {
                         Text(errorMessage).foregroundStyle(.red)
+                    }
+                }
+                if let warningMessage = viewModel.warningMessage {
+                    Section {
+                        Text(warningMessage).foregroundStyle(.orange)
                     }
                 }
                 savedSection
@@ -129,6 +135,7 @@ struct RecordingView: View {
     private var canStart: Bool {
         !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && viewModel.pendingTake == nil
+            && !viewModel.isFinalizing
     }
 
     private var recordSection: some View {
@@ -154,6 +161,13 @@ struct RecordingView: View {
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             } else {
+                if viewModel.isFinalizing {
+                    HStack {
+                        ProgressView()
+                        Text("Finishing video")
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Button {
                     viewModel.start(setup: currentSetup)
                 } label: {
@@ -182,7 +196,8 @@ struct RecordingView: View {
                 cheat: cheat
             ),
             poseLabel: poseLabel,
-            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            saveVideo: saveVideo
         )
     }
 
@@ -225,12 +240,22 @@ struct RecordingView: View {
             }
 
             TextField("Notes (optional)", text: $notes)
+
+            Toggle("Save video", isOn: $saveVideo)
+                .disabled(!viewModel.isVideoAvailable)
         } header: {
             Text("Setup")
         } footer: {
-            Text(viewModel.isMotionAvailable ? "Motion sensors: on" : "Motion sensors: unavailable")
+            Text(statusLine)
         }
         .disabled(viewModel.isRecording)
+    }
+
+    /// Motion sensors and video, for the footer under Setup.
+    private var statusLine: String {
+        let motion = viewModel.isMotionAvailable ? "on" : "unavailable"
+        let video = !viewModel.isVideoAvailable ? "unavailable" : (saveVideo ? "on" : "off")
+        return "Motion sensors: \(motion). Video: \(video)"
     }
 
     // MARK: - Saved
@@ -407,6 +432,12 @@ private struct SavedRow: View {
                     Text(summary.createdAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if summary.hasVideo {
+                        Image(systemName: "video.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Has video")
+                    }
                 }
                 result
                 Text(tagSummary)

@@ -26,6 +26,26 @@ final class CameraPoseSession: NSObject {
     /// presentation time. Used by the DEBUG recorder.
     var onRawFrame: ((RawPoseFrame) -> Void)?
 
+    /// Called with each camera frame's sample buffer, on the pose queue,
+    /// after the timestamp check and before the frame goes to MediaPipe, so
+    /// it fires once for every frame that is delivered as a pose frame. Must
+    /// return quickly. May be set from any queue: access is lock-guarded
+    /// because the pose queue reads it for every frame.
+    var onSampleBuffer: ((CMSampleBuffer) -> Void)? {
+        get {
+            sampleBufferLock.lock()
+            defer { sampleBufferLock.unlock() }
+            return sampleBufferHandler
+        }
+        set {
+            sampleBufferLock.lock()
+            sampleBufferHandler = newValue
+            sampleBufferLock.unlock()
+        }
+    }
+    private let sampleBufferLock = NSLock()
+    private var sampleBufferHandler: ((CMSampleBuffer) -> Void)?
+
     private let captureSession = AVCaptureSession()
     private let videoOutput = AVCaptureVideoDataOutput()
     private let sessionQueue = DispatchQueue(label: "com.addymitter.pushuptime.camera.session")
@@ -178,6 +198,8 @@ extension CameraPoseSession: AVCaptureVideoDataOutputSampleBufferDelegate {
                 didLogLandmarkerFailure = true
                 os_log(.error, log: Self.log, "no PoseLandmarker available; delivering empty pose frames")
             }
+            // Still a delivered pose frame (with no joints), so it still gets video.
+            onSampleBuffer?(sampleBuffer)
             deliver(RawPoseFrame(timestamp: timestamp, presentationTime: presentationSeconds, landmarks: nil, worldLandmarks: nil))
             return
         }
@@ -189,6 +211,8 @@ extension CameraPoseSession: AVCaptureVideoDataOutputSampleBufferDelegate {
             return
         }
         lastSubmittedTimestampMs = timestampMs
+
+        onSampleBuffer?(sampleBuffer)
 
         guard let mpImage = try? MPImage(sampleBuffer: sampleBuffer) else {
             deliver(RawPoseFrame(timestamp: timestamp, presentationTime: presentationSeconds, landmarks: nil, worldLandmarks: nil))

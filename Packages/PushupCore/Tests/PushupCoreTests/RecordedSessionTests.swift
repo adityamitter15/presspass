@@ -557,6 +557,148 @@ struct RecordedSessionTests {
         #expect(MotionStream(rateHz: 100, samples: Array(repeating: 0.5, count: 9)).sample(at: 0) == nil)
     }
 
+    // MARK: - Video
+
+    private func sampleVideo() -> VideoInfo {
+        VideoInfo(
+            file: "set_20260704-093015_3f2504e0.mp4",
+            width: 720,
+            height: 1280,
+            codec: "h264",
+            frameCount: 912,
+            startPts: -0.0333
+        )
+    }
+
+    @Test("a session with video info survives JSON and compares equal")
+    func videoRoundTrip() throws {
+        var session = makeSession(frames: [])
+        session.video = sampleVideo()
+
+        let data = try session.jsonData()
+        let text = try #require(String(data: data, encoding: .utf8))
+        #expect(text.contains("\"video\""))
+        #expect(text.contains("\"file\":\"set_20260704-093015_3f2504e0.mp4\""))
+        #expect(text.contains("\"codec\":\"h264\""))
+
+        let decoded = try RecordedSession.decode(data)
+        #expect(decoded == session)
+        #expect(decoded.schema == 2)
+        #expect(decoded.video == sampleVideo())
+        #expect(decoded.video?.frameCount == 912)
+    }
+
+    @Test("the memberwise initialiser takes video last and defaults it to nil")
+    func videoInitialiser() {
+        let with = RecordedSession(
+            id: "3F2504E0-4F89-41D3-9A0C-0305E82C3301",
+            createdAt: "2026-07-04T09:30:15Z",
+            kind: .set,
+            trueReps: 1,
+            poseLabel: nil,
+            subject: "S01",
+            tags: sampleTags,
+            notes: "",
+            device: sampleDevice,
+            live: nil,
+            frames: [],
+            motion: nil,
+            video: sampleVideo()
+        )
+        #expect(with.video == sampleVideo())
+        #expect(makeSession(frames: []).video == nil)
+    }
+
+    @Test("a file without video decodes with video nil, and nil video is not written")
+    func videoAbsent() throws {
+        let session = makeSession(frames: [])
+        #expect(session.video == nil)
+
+        let data = try session.jsonData()
+        let text = try #require(String(data: data, encoding: .utf8))
+        #expect(!text.contains("video"))
+        #expect(try RecordedSession.decode(data).video == nil)
+
+        // A hand-written file that never mentions video, with null also accepted.
+        let minimal = Data(#"""
+        {"schema":2,"id":"3F2504E0-4F89-41D3-9A0C-0305E82C3301","createdAt":"2026-07-04T09:30:15Z",
+         "kind":"negative","trueReps":0,"subject":"S01",
+         "tags":{"lighting":"dim","distance":"far","clothing":"loose","tempo":"na","variant":"na","cheat":"none"},
+         "notes":"","device":{"model":"m","systemVersion":"26","appVersion":"1","appBuild":"1","poseModel":"p","cameraPosition":"front","featureVersion":"v1"},
+         "frames":[],"video":null}
+        """#.utf8)
+        #expect(try RecordedSession.decode(minimal).video == nil)
+    }
+
+    @Test("a hand-written video object decodes, proving the on-disk field names")
+    func videoFieldNames() throws {
+        let json = Data(#"""
+        {"file":"pose_20260704-093015_3f2504e0.mp4","width":540,"height":960,"codec":"h264","frameCount":450,"startPts":0.0667}
+        """#.utf8)
+        let info = try JSONDecoder().decode(VideoInfo.self, from: json)
+        #expect(info == VideoInfo(file: "pose_20260704-093015_3f2504e0.mp4", width: 540, height: 960, codec: "h264", frameCount: 450, startPts: 0.0667))
+    }
+
+    @Test("startPts is rounded to 6 decimals and survives JSON unchanged", arguments: [
+        (12.3456789, 12.345679),
+        (-0.0333333333, -0.033333),
+        (0.0000004, 0.0),
+        (-0.0000001, 0.0),
+        (-1234.5678904, -1234.56789),
+    ])
+    func startPtsRounding(input: Double, expected: Double) throws {
+        let info = VideoInfo(file: "x.mp4", width: 2, height: 2, codec: "h264", frameCount: 1, startPts: input)
+        #expect(info.startPts == expected)
+        #expect(info.startPts.sign == (expected < 0 ? .minus : .plus))
+
+        var session = makeSession(frames: [])
+        session.video = info
+        let decoded = try RecordedSession.decode(session.jsonData())
+        #expect(decoded.video?.startPts == expected)
+    }
+
+    @Test("videoFileName swaps the json extension for mp4")
+    func videoFileNames() {
+        #expect(RecordedSession.videoFileName(forSessionFileName: "set_20260704-093015_3f2504e0.json")
+            == "set_20260704-093015_3f2504e0.mp4")
+
+        for kind in RecordedSession.Kind.allCases {
+            let json = RecordedSession.fileName(kind: kind, createdAt: "2026-07-04T09:30:15Z", id: UUID().uuidString)
+            let video = RecordedSession.videoFileName(forSessionFileName: json)
+            #expect(video.hasSuffix(".mp4"))
+            #expect(!video.contains("json"))
+            #expect(RecordedSession.isRecordingVideoFileName(video), "\(video)")
+            #expect(!RecordedSession.isRecordingFileName(video), "\(video)")
+            #expect(RecordedSession.isRecordingFileName(json))
+            #expect(!RecordedSession.isRecordingVideoFileName(json))
+        }
+
+        // Only a trailing suffix is replaced.
+        #expect(RecordedSession.videoFileName(forSessionFileName: "a.json.json") == "a.json.mp4")
+        #expect(RecordedSession.videoFileName(forSessionFileName: "notes") == "notes.mp4")
+    }
+
+    @Test("isRecordingVideoFileName rejects everything else", arguments: [
+        "notes.mp4",
+        "set_2026.mp4",
+        "set_20260704-093015_3f2504e0.mov",
+        "set_20260704-093015_3f2504e0.json",
+        "set_20260704-093015_3F2504E0.mp4",
+        "set_20260704-093015_3f2504e.mp4",
+        "set_20260704-093015_3f2504e00.mp4",
+        "up_20260704-093015_3f2504e0.mp4",
+        "../set_20260704-093015_3f2504e0.mp4",
+        "sub/set_20260704-093015_3f2504e0.mp4",
+        "/etc/set_20260704-093015_3f2504e0.mp4",
+        " set_20260704-093015_3f2504e0.mp4",
+        "set_20260704-093015_3f2504e0.mp4\n",
+        "set_20260704-093015_3f2504e0.mp4.mp4",
+        "",
+    ])
+    func rejectsOtherVideoNames(_ name: String) {
+        #expect(!RecordedSession.isRecordingVideoFileName(name))
+    }
+
     // MARK: - Size
 
     @Test("a 30 fps session stays well under the size budget")

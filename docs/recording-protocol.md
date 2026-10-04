@@ -7,12 +7,13 @@ How the evaluation dataset is recorded. The aim is a dataset that can answer fou
 3. Does it ever count reps when nobody is exercising?
 4. Does it still work on a person it has never seen?
 
-Everything is recorded with the in-app recorder (Workout tab, Data collection mode, debug builds only). Only pose landmark coordinates are stored. No images or video leave the camera pipeline.
+Everything is recorded with the in-app recorder (Workout tab, Data collection mode, debug builds only). The dataset itself holds only pose landmark coordinates and phone motion. Video, when saved, is kept privately and is not part of the dataset (see "Video" in `docs/data-format.md`).
 
 ## Setup
 
 - Phone on the floor, propped upright against something stable, front camera facing you head-on.
 - Your face and both hands must be in frame at the top of the rep.
+- The recorder saves the camera video of each take for participants who agreed to it. Switch Save video off in Setup for anyone who did not, or for any single take.
 - Distance is measured roughly from the phone to your hands:
 
 | Tag | Distance |
@@ -93,7 +94,7 @@ Alternate `fitted` and `loose` clothing between sessions. Include at least one s
 Each extra person adds more than extra sessions from the same person, because it allows a test on someone the model has never seen. One session each is enough.
 
 - Give each person an anonymous subject id (`S02`, `S03`, and so on). Do not record names in the notes.
-- Tell them before recording that only body landmark coordinates are stored, with no video, and that the dataset will be published openly under CC BY 4.0. Record only if they agree.
+- Go through `docs/participant-consent.md` with them before recording. The body landmark coordinates go in the openly published dataset (CC BY 4.0); video is kept privately and is saved only if they agreed to it. Record only if they agree, and switch Save video off if they said no to video.
 
 ## Train and test split
 
@@ -107,4 +108,12 @@ Nothing is tuned on the test set. If it is ever used to make a decision, that is
 
 ## Getting the files off the phone
 
-Either connect the phone to the Mac, or use Export all in the recorder and AirDrop the zip to the Mac. The JSON files go in `data/sessions/` at the repo root (see `docs/evaluation.md` for what to run next). The file format is described in `docs/data-format.md`.
+Connect the phone to the Mac, unlock it, and run:
+
+```
+scripts/pull_recordings.sh [device-id]
+```
+
+It copies `Documents/Recordings` from the debug app with `xcrun devicectl` (the device id is optional when exactly one iPhone is connected). New session JSON files go into `data/sessions/` at the repo root and new video files into `private/video/`, which is git-ignored and never published. A file that already exists with different contents is reported and skipped, never overwritten, and nothing is deleted on the phone or the Mac. It prints how many files were new and the sets and reps by subject. See `docs/evaluation.md` for what to run next, and `docs/data-format.md` for the file format.
+
+Export all in the recorder and AirDrop is the fallback; it zips the videos too, so the archive can be large. Put the JSON files in `data/sessions/` and the `.mp4` files in `private/video/`.

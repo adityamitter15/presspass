@@ -13,6 +13,17 @@ protocol PoseSource: AnyObject {
     /// empty `joints` dict when nobody is in view.
     var onFrame: ((PoseFrame) -> Void)? { get set }
 
+    /// Called with the camera's own sample buffer for every camera frame that
+    /// will be delivered as a pose frame, before pose detection runs on it.
+    /// The buffers are portrait and already mirrored, so they show exactly
+    /// what the pose model sees. Used by the DEBUG recorder to save video.
+    ///
+    /// Called on the source's own processing queue, NOT the main queue, so
+    /// the closure must be safe to run off the main actor and must return
+    /// quickly: it holds up pose detection. The property itself may be set
+    /// from any queue. A source with no camera (replay) never calls it.
+    var onSampleBuffer: ((CMSampleBuffer) -> Void)? { get set }
+
     /// Nil when the source has no camera image to show (replay).
     func makePreviewLayer() -> AVCaptureVideoPreviewLayer?
 

@@ -103,6 +103,11 @@ public struct RecordedSession: Codable, Equatable {
     /// `frames[].pts`. nil when it was not recorded (early files, or a device
     /// without motion sensors).
     public var motion: MotionStream?
+    /// The camera video of the take, when one was saved. The video file is
+    /// stored next to this JSON file, is never part of the published dataset
+    /// and is described by `VideoInfo`. nil when no video was saved (early
+    /// files, takes recorded with video switched off, simulator).
+    public var video: VideoInfo?
 
     public init(
         schema: Int = RecordedSession.currentSchema,
@@ -117,7 +122,8 @@ public struct RecordedSession: Codable, Equatable {
         device: DeviceInfo,
         live: LiveResult?,
         frames: [RecordedFrame],
-        motion: MotionStream? = nil
+        motion: MotionStream? = nil,
+        video: VideoInfo? = nil
     ) {
         self.schema = schema
         self.id = id
@@ -132,6 +138,43 @@ public struct RecordedSession: Codable, Equatable {
         self.live = live
         self.frames = frames
         self.motion = motion
+        self.video = video
+    }
+}
+
+/// The video file saved next to a take, and how it lines up with `frames`.
+public struct VideoInfo: Codable, Equatable {
+    /// File name only, never a path. The same base name as the session JSON
+    /// with the extension `mp4`, see `RecordedSession.videoFileName`.
+    public var file: String
+    /// Encoded pixel width.
+    public var width: Int
+    /// Encoded pixel height.
+    public var height: Int
+    /// Video codec, `"h264"`.
+    public var codec: String
+    /// Frames written to the file.
+    public var frameCount: Int
+    /// Presentation time of the video's first frame minus the presentation
+    /// time of the session's first recorded frame, in seconds, rounded to 6
+    /// decimals. May be slightly negative or positive. A recorded frame with
+    /// `pts` p appears in the video at time `p - startPts`.
+    public var startPts: Double
+
+    public init(file: String, width: Int, height: Int, codec: String, frameCount: Int, startPts: Double) {
+        self.file = file
+        self.width = width
+        self.height = height
+        self.codec = codec
+        self.frameCount = frameCount
+        self.startPts = Self.rounded(startPts, places: 6)
+    }
+
+    /// Rounds to `places` decimals. Negative zero is normalised to zero.
+    private static func rounded(_ value: Double, places: Int) -> Double {
+        let scale = pow(10, Double(places))
+        let result = (value * scale).rounded() / scale
+        return result == 0 ? 0 : result
     }
 }
 
@@ -428,6 +471,24 @@ extension RecordedSession {
     /// components.
     public static func isRecordingFileName(_ name: String) -> Bool {
         let pattern = "^(set|negative|pose)_[0-9]{8}-[0-9]{6}_[0-9a-f]{8}\\.json\\z"
+        return name.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// The video file name that goes with a session file name: a trailing
+    /// `.json` becomes `.mp4`. A name without that suffix gets `.mp4`
+    /// appended, so the result never equals the input.
+    public static func videoFileName(forSessionFileName name: String) -> String {
+        let suffix = ".json"
+        let base = name.hasSuffix(suffix) ? String(name.dropLast(suffix.count)) : name
+        return base + ".mp4"
+    }
+
+    /// True only for the names `videoFileName(forSessionFileName:)` produces
+    /// from a name `fileName` can produce: the session pattern with `.mp4`.
+    /// Used as the guard before touching a video file, so it must reject
+    /// anything else, including path components.
+    public static func isRecordingVideoFileName(_ name: String) -> Bool {
+        let pattern = "^(set|negative|pose)_[0-9]{8}-[0-9]{6}_[0-9a-f]{8}\\.mp4\\z"
         return name.range(of: pattern, options: .regularExpression) != nil
     }
 

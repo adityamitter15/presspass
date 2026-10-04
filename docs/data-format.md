@@ -1,6 +1,6 @@
 # Recording data format, schema version 2
 
-Reference for the JSON files written by the in-app recorder (Workout tab, Data collection mode, debug builds only). One file is one take. Only pose landmark coordinates are stored: no images and no video.
+Reference for the JSON files written by the in-app recorder (Workout tab, Data collection mode, debug builds only). One file is one take. The JSON holds pose landmark coordinates and the phone's motion, never images or video. A take can also have a separate video file next to it, described by `video`, which is not part of the published dataset (see "Video").
 
 The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession.swift` and `RawPoseFrame.swift`. The recording procedure is in `docs/recording-protocol.md`.
 
@@ -13,7 +13,8 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 - Schema 1 (the earlier `label` / `source` / `joints` format) is not readable by the schema 2 loader. A file whose `schema` is not `2` is rejected with `RecordedSessionError.unsupportedSchema`.
 - Absent optional values are omitted from the JSON rather than written as `null`. A reader should treat a missing key and `null` the same way.
 - Size is roughly 45 to 70 kB per recorded second at 30 fps, so a take at the 300 second limit is about 14 to 20 MB. Motion adds roughly 10 to 15 kB per recorded second (100 samples of 10 numbers).
-- `motion` was added without changing the schema number. A file without it is still a valid schema 2 file and loads with no motion.
+- `motion` and `video` were added without changing the schema number. A file without them is still a valid schema 2 file and loads with no motion and no video.
+- A take recorded with video also writes `<same base name>.mp4` in the same directory, for example `set_20260704-093015_3f2504e0.mp4`. "Export all" zips it with the rest; deleting a recording in the app deletes its video too.
 
 ## Top level
 
@@ -32,6 +33,7 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 | `live` | object, optional | What the app counted while recording, see "Live result". |
 | `frames` | array | One entry per camera frame, see "Frames". |
 | `motion` | object, optional | The phone's own motion during the take, see "Motion". Absent in early files and when the device had no motion sensors. |
+| `video` | object, optional | The camera video saved for the take, see "Video". Absent when no video was saved. |
 
 ## Ground truth
 
@@ -172,6 +174,26 @@ Each sample is:
 - Samples are in time order. A reader must count whole samples only: `samples.count / 10` rounded down, ignoring a trailing partial sample. `PushupCore` does this in `MotionStream.sampleCount`.
 - Rounding: `t` to 6 decimal places, the nine sensor values to 5.
 - `motion` is omitted when the device has no motion sensors (including the simulator) or when the first recorded frame had no presentation time, since the timelines then cannot be aligned.
+
+## Video
+
+`video` describes the camera video that was saved for the take. The video exists so the same repetitions can later be shown to other counting systems for comparison. The video files are **not part of the dataset**: they are never committed to the repository, never published, and are kept outside the dataset (on the Mac, in `private/video/`, which is git-ignored; `data/sessions/*.mp4` and `*.mov` are git-ignored too). Only participants who agreed to video are recorded with it, and it can be switched off per take in the recorder.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `file` | string | File name only, no path: the session's file name with `.json` replaced by `.mp4`. |
+| `width`, `height` | integer | Encoded size in pixels. Portrait, at most 720 by 1280, even numbers. |
+| `codec` | string | `h264`. MP4 container, no audio track. |
+| `frameCount` | integer | Frames written to the file. Can be lower than `frames.count`: see "Alignment". |
+| `startPts` | number | Presentation time of the video's first frame minus the presentation time of the first recorded frame, in seconds, rounded to 6 decimals. Can be slightly negative or positive. |
+
+Alignment. The video holds the same camera frames the pose detector saw, portrait and mirrored exactly as for `lm`, so a landmark can be drawn on its video frame without any transform. A recorded frame with `pts` of `p` appears in the video at time
+
+`p - startPts`
+
+seconds (video time 0 is the video's first frame). A result below 0, or at or beyond the video's duration, means that frame has no video frame: the video can start a frame or two after the first recorded frame, and ends with the last frame of the take. The video clock and `pts` are the same camera clock, so `startPts` is the only offset needed. Do not use `frames[].t` for this. The video is about 4 Mbit per second, so roughly 0.5 MB per recorded second.
+
+`video` is omitted when no video was saved: video switched off, a device or simulator with no camera, a video that could not be written, or a first frame with no presentation time, which leaves nothing to align against.
 
 ## Replaying a take
 

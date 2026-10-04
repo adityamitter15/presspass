@@ -282,6 +282,33 @@ struct LoadingTests {
     }
 }
 
+@Suite("Single synthetic session")
+struct SingleSessionTests {
+    @Test("clean-8 is one loadable set of 8 reps that the pipeline counts as 8")
+    func clean8() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let name = try SyntheticDataset.writeSession(named: "clean-8", to: dir)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == [name])
+        let session = try RecordedSession.load(from: dir.appendingPathComponent(name))
+        #expect(session.kind == .set)
+        #expect(session.trueReps == 8)
+        #expect(session.tags.tempo == .normal)
+        let pipeline = PipelineConfig.default.makePipeline()
+        var last: PipelineOutput?
+        for frame in session.poseFrames() { last = pipeline.process(frame) }
+        #expect(last?.reps == 8)
+        #expect(last?.rejectedReps == 0)
+    }
+
+    @Test("an unknown name is a runtime error")
+    func unknownName() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(throws: EvalError.self) { try SyntheticDataset.writeSession(named: "nope", to: dir) }
+    }
+}
+
 @Suite("Features CSV")
 struct FeaturesCSVTests {
     private let expectedHeader = "session_id,frame,t,has_features,"
@@ -351,6 +378,8 @@ struct ArgumentParsingTests {
         #expect(CLI.parse(["features", "--data", "d", "--out", "f.csv"]) == .success(.features(data: "d", out: "f.csv", config: nil)))
         #expect(CLI.parse(["synth", "--out", "s"]) == .success(.synth(out: "s", seed: 1)))
         #expect(CLI.parse(["synth", "--out", "s", "--seed", "7"]) == .success(.synth(out: "s", seed: 7)))
+        #expect(CLI.parse(["synth", "--out", "s", "--only", "clean-8"]) == .success(.synthOne(name: "clean-8", out: "s", seed: 1)))
+        #expect(CLI.parse(["synth", "--only=clean-8", "--out", "s", "--seed", "3"]) == .success(.synthOne(name: "clean-8", out: "s", seed: 3)))
         #expect(CLI.parse(["--help"]) == .success(.help))
     }
 
@@ -369,6 +398,7 @@ struct ArgumentParsingTests {
         ["synth"],
         ["synth", "--out", "s", "--seed", "abc"],
         ["synth", "--out", "s", "--seed", "-1"],
+        ["synth", "--out", "s", "--only", "nope"],
     ] as [[String]])
     func usageErrors(arguments: [String]) {
         guard case .failure = CLI.parse(arguments) else {

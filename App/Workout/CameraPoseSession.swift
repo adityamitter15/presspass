@@ -84,7 +84,7 @@ final class CameraPoseSession: NSObject {
 
     /// Builds a fresh preview layer wired to this session. Callers own the
     /// layer's placement/sizing.
-    func makePreviewLayer() -> AVCaptureVideoPreviewLayer {
+    func makeCameraPreviewLayer() -> AVCaptureVideoPreviewLayer {
         let layer = AVCaptureVideoPreviewLayer(session: captureSession)
         layer.videoGravity = .resizeAspectFill
         return layer

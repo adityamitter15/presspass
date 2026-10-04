@@ -1,0 +1,73 @@
+import Foundation
+import PushupCore
+import os.log
+
+/// How this launch was configured, resolved once from the launch arguments
+/// and the build. The Simulator has no camera, so it always replays the
+/// bundled demo session. A DEBUG build on a device can do the same with
+/// `-demo 1`, and `-screen`, `-demoSpeed` and `-demoLoops` steer screenshots.
+struct AppEnvironment {
+    /// A screen the app can open on, for `-screen` (DEBUG builds only).
+    enum Screen: String {
+        case home
+        case workout
+        case summary
+    }
+
+    let usesReplaySource: Bool
+    let demoSpeed: Double
+    let demoLoops: Bool
+    let initialScreen: Screen?
+
+    static let current = AppEnvironment(arguments: ProcessInfo.processInfo.arguments)
+
+    private static let log = OSLog(subsystem: "com.addymitter.pushuptime", category: "AppEnvironment")
+    private static let demoResource = "DemoSession"
+
+    init(arguments: [String]) {
+        func value(after flag: String) -> String? {
+            guard let position = arguments.firstIndex(of: flag), position + 1 < arguments.count else { return nil }
+            return arguments[position + 1]
+        }
+
+        #if targetEnvironment(simulator)
+        usesReplaySource = true
+        #elseif DEBUG
+        usesReplaySource = value(after: "-demo") == "1"
+        #else
+        usesReplaySource = false
+        #endif
+
+        demoSpeed = value(after: "-demoSpeed").flatMap(Double.init).flatMap { $0 > 0 ? $0 : nil } ?? 1.0
+        demoLoops = value(after: "-demoLoops") != "0"
+
+        #if DEBUG
+        initialScreen = value(after: "-screen").flatMap(Screen.init(rawValue:))
+        #else
+        initialScreen = nil
+        #endif
+    }
+
+    /// The bundled demo recording: one clean set of 8 reps.
+    func loadDemoSession() -> RecordedSession? {
+        guard let url = Bundle.main.url(forResource: Self.demoResource, withExtension: "json") else {
+            os_log(.error, log: Self.log, "DemoSession.json not found in bundle")
+            return nil
+        }
+        do {
+            return try RecordedSession.load(from: url)
+        } catch {
+            os_log(.error, log: Self.log, "failed to load DemoSession.json: %{public}@", String(describing: error))
+            return nil
+        }
+    }
+
+    /// The replay of the demo session when `usesReplaySource`, otherwise the
+    /// camera. A missing or unreadable demo session falls back to the camera.
+    func makePoseSource() -> PoseSource {
+        if usesReplaySource, let session = loadDemoSession() {
+            return ReplayPoseSource(session: session, loops: demoLoops, speed: demoSpeed)
+        }
+        return CameraPoseSession()
+    }
+}

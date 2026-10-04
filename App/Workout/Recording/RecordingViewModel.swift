@@ -73,7 +73,7 @@ final class RecordingViewModel: ObservableObject {
     @Published private(set) var isExporting = false
     @Published var errorMessage: String?
 
-    private let cameraSession = CameraPoseSession()
+    private let poseSource: PoseSource
     private let motionRecorder = MotionRecorder()
     private let store = RecordingStore()
     private let ioQueue = DispatchQueue(label: "com.addymitter.pushuptime.recorder.io", qos: .utility)
@@ -97,9 +97,10 @@ final class RecordingViewModel: ObservableObject {
     /// Whether this device can supply device motion, shown as a status line.
     let isMotionAvailable: Bool
 
-    init() {
+    init(poseSource: PoseSource = AppEnvironment.current.makePoseSource()) {
+        self.poseSource = poseSource
         isMotionAvailable = motionRecorder.isAvailable
-        cameraSession.onRawFrame = { [weak self] raw in
+        poseSource.onRawFrame = { [weak self] raw in
             self?.handle(raw: raw)
         }
     }
@@ -107,8 +108,9 @@ final class RecordingViewModel: ObservableObject {
     /// Single preview layer for this view model's lifetime. Must not be
     /// recreated per SwiftUI render: only the first layer ever gets added
     /// to the view's layer tree, so a fresh layer per `body` evaluation
-    /// leaves the on-screen one unsized (blank preview).
-    lazy var previewLayer: AVCaptureVideoPreviewLayer = cameraSession.makePreviewLayer()
+    /// leaves the on-screen one unsized (blank preview). Nil when the source
+    /// has no camera image (replay).
+    lazy var previewLayer: AVCaptureVideoPreviewLayer? = poseSource.makePreviewLayer()
 
     // MARK: - Camera
 
@@ -120,7 +122,7 @@ final class RecordingViewModel: ObservableObject {
         guard !isCameraActive else { return }
         isCameraActive = true
         motionRecorder.start()
-        cameraSession.start { [weak self] result in
+        poseSource.start { [weak self] result in
             guard let self else { return }
             if case .failure(let error) = result {
                 switch error {
@@ -138,7 +140,7 @@ final class RecordingViewModel: ObservableObject {
     /// Stops the camera. A take still in progress is dropped, since leaving
     /// the screen mid-set means it is not a usable recording.
     func stopCamera() {
-        cameraSession.stop()
+        poseSource.stop()
         motionRecorder.stop()
         isCameraActive = false
         if isRecording {

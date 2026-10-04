@@ -4,9 +4,9 @@ import Foundation
 import PushupCore
 import UIKit
 
-/// Coordinates the camera/pose pipeline, feature extraction, classifier,
-/// and rep counter for one workout session, and publishes the state
-/// `WorkoutView` renders. Everything downstream of `CameraPoseSession`
+/// Coordinates the pose source (camera, or a replay in the Simulator),
+/// feature extraction, classifier, and rep counter for one workout session,
+/// and publishes the state `WorkoutView` renders. Everything downstream of the `PoseSource`
 /// (feature extraction, classification, rep counting) runs synchronously
 /// on the delivery queue's callback, cheap enough per-frame that it
 /// doesn't need its own queue, and keeping it on the main queue means the
@@ -32,16 +32,16 @@ final class WorkoutViewModel: ObservableObject {
     @Published private(set) var debugStatus: String = ""
     #endif
 
-    private let cameraSession: CameraPoseSession
+    private let poseSource: PoseSource
     private let pipeline: PushupPipeline
 
     init(
-        cameraSession: CameraPoseSession = CameraPoseSession(),
+        poseSource: PoseSource = AppEnvironment.current.makePoseSource(),
         pipeline: PushupPipeline = PushupPipeline(classifier: PoseClassifierFactory.makeDefault())
     ) {
-        self.cameraSession = cameraSession
+        self.poseSource = poseSource
         self.pipeline = pipeline
-        self.cameraSession.onFrame = { [weak self] frame in
+        self.poseSource.onFrame = { [weak self] frame in
             self?.handle(frame: frame)
         }
     }
@@ -49,8 +49,9 @@ final class WorkoutViewModel: ObservableObject {
     /// Single preview layer for the session's lifetime. Must not be
     /// recreated per SwiftUI render: only the first layer ever gets added
     /// to the view's layer tree, so a fresh layer per `body` evaluation
-    /// leaves the on-screen one unsized (blank preview).
-    lazy var previewLayer: AVCaptureVideoPreviewLayer = cameraSession.makePreviewLayer()
+    /// leaves the on-screen one unsized (blank preview). Nil when the source
+    /// has no camera image (replay).
+    lazy var previewLayer: AVCaptureVideoPreviewLayer? = poseSource.makePreviewLayer()
 
     func start() {
         cameraErrorMessage = nil
@@ -61,7 +62,7 @@ final class WorkoutViewModel: ObservableObject {
         ignoreReason = .none
         isRunning = true
 
-        cameraSession.start { [weak self] result in
+        poseSource.start { [weak self] result in
             guard let self else { return }
             switch result {
             case .success:
@@ -77,7 +78,7 @@ final class WorkoutViewModel: ObservableObject {
     }
 
     func stop() {
-        cameraSession.stop()
+        poseSource.stop()
         isRunning = false
     }
 

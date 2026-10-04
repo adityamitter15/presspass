@@ -37,6 +37,37 @@ public enum SyntheticDataset {
         ]
     }
 
+    /// Names accepted by `session(named:seed:)`.
+    public static let singleSessionNames = ["clean-8"]
+
+    /// One session picked by name, or nil for an unknown name. `clean-8` is a
+    /// single clean set of 8 full reps at normal tempo with the body in frame
+    /// throughout, used as the app's bundled demo recording.
+    public static func session(named name: String, seed: UInt64 = 1) -> RecordedSession? {
+        switch name {
+        case "clean-8":
+            let bright = SyntheticSessions.Conditions(lighting: .indoorBright, distance: .mid, clothing: .fitted)
+            return SyntheticSessions.cleanSet(reps: 8, tempo: .normal, conditions: bright, createdAt: morning, seed: seed)
+        default:
+            return nil
+        }
+    }
+
+    /// Writes one named session into `directory` (created if needed) and
+    /// returns its file name. Same encoding as `write(to:seed:)`.
+    @discardableResult
+    public static func writeSession(named name: String, to directory: URL, seed: UInt64 = 1) throws -> String {
+        guard let session = session(named: name, seed: seed) else {
+            throw EvalError.unknownSession(name, singleSessionNames)
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let fileName = RecordedSession.fileName(kind: session.kind, createdAt: session.createdAt, id: session.id)
+        try encoder.encode(session).write(to: directory.appendingPathComponent(fileName), options: .atomic)
+        return fileName
+    }
+
     /// Writes the dataset into `directory` (created if needed), one file per
     /// session named with `RecordedSession.fileName`, and returns the file
     /// names in order.

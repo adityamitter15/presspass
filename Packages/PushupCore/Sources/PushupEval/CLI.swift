@@ -6,6 +6,7 @@ public enum Command: Equatable {
     case replay(data: String, out: String, config: String?, model: String?)
     case features(data: String, out: String, config: String?)
     case synth(out: String, seed: UInt64)
+    case synthOne(name: String, out: String, seed: UInt64)
     case help
 }
 
@@ -19,12 +20,13 @@ public enum CLI {
     usage:
       pushup-eval replay   --data <dir> --out <predictions.json> [--config <config.json>] [--model <compiled .mlmodelc path>]
       pushup-eval features --data <dir> --out <features.csv>     [--config <config.json>]
-      pushup-eval synth    --out <dir> [--seed <int>]
+      pushup-eval synth    --out <dir> [--seed <int>] [--only <name>]
       pushup-eval --help
 
     replay    run every recorded session in <dir> through the shipped pipeline and write the counts as JSON
     features  write one CSV row per frame with the 25 features and the heuristic label
-    synth     write a small synthetic dataset (clearly labelled synthetic) for exercising the tools
+    synth     write a small synthetic dataset (clearly labelled synthetic) for exercising the tools;
+              with --only, write just one named session (clean-8: one clean set of 8 reps)
 
     exit codes: 0 success, 1 runtime failure, 2 usage error
     """
@@ -54,12 +56,20 @@ public enum CLI {
                 .features(data: $0["data"]!, out: $0["out"]!, config: $0["config"])
             }
         case "synth":
-            return options(rest, required: ["out"], optional: ["seed"]).flatMap { values in
-                guard let text = values["seed"] else {
-                    return .success(.synth(out: values["out"]!, seed: defaultSeed))
+            return options(rest, required: ["out"], optional: ["seed", "only"]).flatMap { values in
+                var seed = defaultSeed
+                if let text = values["seed"] {
+                    guard let parsed = UInt64(text) else {
+                        return .failure(UsageError(message: "--seed must be a non-negative integer, got '\(text)'"))
+                    }
+                    seed = parsed
                 }
-                guard let seed = UInt64(text) else {
-                    return .failure(UsageError(message: "--seed must be a non-negative integer, got '\(text)'"))
+                if let name = values["only"] {
+                    guard SyntheticDataset.singleSessionNames.contains(name) else {
+                        let known = SyntheticDataset.singleSessionNames.joined(separator: ", ")
+                        return .failure(UsageError(message: "--only must be one of: \(known), got '\(name)'"))
+                    }
+                    return .success(.synthOne(name: name, out: values["out"]!, seed: seed))
                 }
                 return .success(.synth(out: values["out"]!, seed: seed))
             }
@@ -135,6 +145,10 @@ public enum CLI {
         case .synth(let outPath, let seed):
             let names = try SyntheticDataset.write(to: URL(fileURLWithPath: outPath), seed: seed)
             out("wrote \(names.count) synthetic sessions (seed \(seed)) into \(outPath)")
+
+        case .synthOne(let name, let outPath, let seed):
+            let fileName = try SyntheticDataset.writeSession(named: name, to: URL(fileURLWithPath: outPath), seed: seed)
+            out("wrote synthetic session \(name) (seed \(seed)) as \(fileName) into \(outPath)")
         }
     }
 

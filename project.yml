@@ -2,14 +2,14 @@ name: PushupTime
 options:
   bundleIdPrefix: com.addymitter
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "18.0"
   createIntermediateGroups: true
 
 settings:
   base:
     SWIFT_VERSION: "5.9"
     TARGETED_DEVICE_FAMILY: "1"
-    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     DEVELOPMENT_TEAM: 96NZ2LL5TG
     CODE_SIGN_STYLE: Automatic
 
@@ -42,8 +42,11 @@ targets:
       - path: App
         excludes:
           - "Resources/pose_landmarker_full.task"
+          - "Resources/DemoSession.json"
       - path: Shared
       - path: App/Resources/pose_landmarker_full.task
+        buildPhase: resources
+      - path: App/Resources/DemoSession.json
         buildPhase: resources
     settings:
       base:
@@ -73,8 +76,11 @@ targets:
       - path: App
         excludes:
           - "Resources/pose_landmarker_full.task"
+          - "Resources/DemoSession.json"
       - path: Shared
       - path: App/Resources/pose_landmarker_full.task
+        buildPhase: resources
+      - path: App/Resources/DemoSession.json
         buildPhase: resources
     settings:
       base:

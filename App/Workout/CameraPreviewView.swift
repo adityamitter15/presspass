@@ -3,13 +3,14 @@ import SwiftUI
 
 /// Thin `UIViewRepresentable` wrapper around an `AVCaptureVideoPreviewLayer`
 /// so `WorkoutView` can show the live camera feed inside a SwiftUI layout.
+/// With no layer (a replay source has no camera image) it shows a plain dark
+/// background instead.
 struct CameraPreviewView: UIViewRepresentable {
-    let previewLayer: AVCaptureVideoPreviewLayer
+    let previewLayer: AVCaptureVideoPreviewLayer?
 
     func makeUIView(context: Context) -> PreviewContainerView {
         let view = PreviewContainerView()
         view.previewLayer = previewLayer
-        view.layer.addSublayer(previewLayer)
         return view
     }
 
@@ -20,6 +21,7 @@ struct CameraPreviewView: UIViewRepresentable {
     final class PreviewContainerView: UIView {
         var previewLayer: AVCaptureVideoPreviewLayer? {
             didSet {
+                backgroundColor = previewLayer == nil ? Self.placeholderColor : nil
                 guard previewLayer !== oldValue else { return }
                 oldValue?.removeFromSuperlayer()
                 if let previewLayer, previewLayer.superlayer !== layer {
@@ -28,6 +30,8 @@ struct CameraPreviewView: UIViewRepresentable {
                 setNeedsLayout()
             }
         }
+
+        private static let placeholderColor = UIColor(white: 0.07, alpha: 1)
 
         override func layoutSubviews() {
             super.layoutSubviews()

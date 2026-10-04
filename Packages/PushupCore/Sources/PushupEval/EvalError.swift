@@ -6,6 +6,7 @@ public enum EvalError: Error, Equatable, CustomStringConvertible {
     case configUnreadable(String, String)
     case modelLoadFailed(String)
     case writeFailed(String, String)
+    case unknownSession(String, [String])
 
     public var description: String {
         switch self {
@@ -17,6 +18,8 @@ public enum EvalError: Error, Equatable, CustomStringConvertible {
             return "cannot load the Core ML model at \(path); it must be a compiled .mlmodelc directory"
         case .writeFailed(let path, let reason):
             return "cannot write \(path): \(reason)"
+        case .unknownSession(let name, let known):
+            return "unknown session '\(name)', expected one of: \(known.joined(separator: ", "))"
         }
     }
 }

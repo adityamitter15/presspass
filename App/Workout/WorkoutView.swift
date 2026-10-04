@@ -11,9 +11,13 @@ struct WorkoutView: View {
 
     #if DEBUG
     @State private var debugMessage: String?
+    @State private var didApplyLaunchScreen = false
     #endif
 
     var body: some View {
+        // Read here, not only inside the sheet's closure, so the sheet is
+        // rebuilt with the current count when that is set in the same update that opens it.
+        let summaryCount = summaryReps
         NavigationStack {
             ZStack {
                 if viewModel.isRunning {
@@ -54,8 +58,11 @@ struct WorkoutView: View {
                 }
             }
             .sheet(isPresented: $showSummary) {
-                summarySheet
+                summarySheet(reps: summaryCount)
             }
+            #if DEBUG
+            .onAppear(perform: applyLaunchScreen)
+            #endif
         }
     }
 
@@ -185,14 +192,14 @@ struct WorkoutView: View {
 
     // MARK: - Summary sheet
 
-    private var summarySheet: some View {
+    private func summarySheet(reps: Int) -> some View {
         VStack(spacing: 20) {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(.green)
-            Text("\(summaryReps) pushup\(summaryReps == 1 ? "" : "s")")
+            Text("\(reps) pushup\(reps == 1 ? "" : "s")")
                 .font(.largeTitle.bold())
-            Text("\(summaryReps) minute\(summaryReps == 1 ? "" : "s") credited to your balance")
+            Text("\(reps) minute\(reps == 1 ? "" : "s") credited to your balance")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -220,6 +227,26 @@ struct WorkoutView: View {
     // MARK: - DEBUG-only controls
 
     #if DEBUG
+    /// `-screen workout` starts the workout as soon as the tab appears;
+    /// `-screen summary` shows the summary sheet for a finished demo run,
+    /// with the rep count taken from running the demo session through the
+    /// pipeline at once. Nothing is credited to the balance in either case.
+    private func applyLaunchScreen() {
+        guard !didApplyLaunchScreen else { return }
+        didApplyLaunchScreen = true
+        switch AppEnvironment.current.initialScreen {
+        case .workout:
+            viewModel.start()
+        case .summary:
+            guard let session = AppEnvironment.current.loadDemoSession() else { return }
+            let reps = ReplayPoseSource.finalRepCount(of: session)
+            summaryReps = reps
+            showSummary = true
+        case .home, nil:
+            break
+        }
+    }
+
     private var debugHUD: some View {
         Text(viewModel.debugStatus)
             .font(.caption2.monospaced())

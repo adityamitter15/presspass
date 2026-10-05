@@ -2,7 +2,7 @@ import SwiftUI
 import FamilyControls
 
 /// Handles Family Controls authorization and the app/category picker used
-/// to decide what gets shielded.
+/// to decide what gets shielded. Pushed from Settings.
 struct SetupView: View {
     @State private var authorizationStatusText: String = "Unknown"
     @State private var isPickerPresented = false
@@ -10,48 +10,62 @@ struct SetupView: View {
     @State private var setupErrorMessage: String?
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Screen Time authorization") {
-                    Text(authorizationStatusText)
-                        .foregroundStyle(.secondary)
-                    Button("Request authorization") {
-                        Task { await requestAuthorization() }
-                    }
+        Form {
+            Section {
+                Text(authorizationStatusText)
+                    .foregroundStyle(Theme.textSecondary)
+                    .listRowBackground(Theme.ink700)
+                Button("Request authorization") {
+                    Task { await requestAuthorization() }
                 }
+                .buttonStyle(SetupRowButtonStyle())
+                .listRowBackground(Theme.ink700)
+            } header: {
+                Text("Screen Time authorization").ticketText()
+            }
 
-                Section("Apps to protect") {
-                    Text("\(selection.applicationTokens.count) apps, \(selection.categoryTokens.count) categories selected")
-                        .foregroundStyle(.secondary)
-                    Button("Choose apps") {
-                        isPickerPresented = true
-                    }
+            Section {
+                Text("\(selection.applicationTokens.count) apps, \(selection.categoryTokens.count) categories selected")
+                    .foregroundStyle(Theme.textSecondary)
+                    .listRowBackground(Theme.ink700)
+                Button("Choose apps") {
+                    isPickerPresented = true
                 }
+                .buttonStyle(SetupRowButtonStyle())
+                .listRowBackground(Theme.ink700)
+            } header: {
+                Text("Apps to protect").ticketText()
+            }
 
+            Section {
+                Button("Enable protection") {
+                    ShieldController.applyShield(for: selection)
+                }
+                .buttonStyle(SetupRowButtonStyle())
+                .listRowBackground(Theme.ink700)
+            }
+
+            if let setupErrorMessage {
                 Section {
-                    Button("Enable protection") {
-                        ShieldController.applyShield(for: selection)
-                    }
-                }
-
-                if let setupErrorMessage {
-                    Section {
-                        Text(setupErrorMessage)
-                            .foregroundStyle(.red)
-                    }
+                    Text(setupErrorMessage)
+                        .foregroundStyle(Theme.coral)
+                        .listRowBackground(Theme.ink700)
                 }
             }
-            .navigationTitle("Setup")
-            .familyActivityPicker(isPresented: $isPickerPresented, selection: $selection)
-            .onChange(of: selection) { newSelection in
-                SharedStore.saveSelection(newSelection)
+        }
+        .scrollContentBackground(.hidden)
+        .screenBackground()
+        .navigationTitle("Choose apps")
+        .navigationBarTitleDisplayMode(.inline)
+        .familyActivityPicker(isPresented: $isPickerPresented, selection: $selection)
+        .onChange(of: selection) { newSelection in
+            SharedStore.saveSelection(newSelection)
+        }
+        .onAppear {
+            if let saved = SharedStore.loadSelection() {
+                selection = saved
             }
-            .onAppear {
-                if let saved = SharedStore.loadSelection() {
-                    selection = saved
-                }
-                refreshAuthorizationStatus()
-            }
+            refreshAuthorizationStatus()
         }
     }
 
@@ -82,6 +96,18 @@ struct SetupView: View {
     }
 }
 
+/// A button row: volt text.
+private struct SetupRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(.body, design: .rounded, weight: .semibold))
+            .foregroundStyle(Theme.volt)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .contentShape(Rectangle())
+    }
+}
+
 #Preview {
-    SetupView()
+    NavigationStack { SetupView() }
 }

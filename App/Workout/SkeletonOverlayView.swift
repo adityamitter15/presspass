@@ -4,7 +4,8 @@ import SwiftUI
 /// Draws joints and connecting bones from a `PoseFrame` over the camera
 /// preview. `PoseFrame`'s coordinate space has y=0 at the bottom of the
 /// image; SwiftUI's `Canvas` has y=0 at the top, so every point is flipped
-/// vertically before drawing.
+/// vertically before drawing. Bones are volt with a soft glow, joints are
+/// small white dots, and only joints the detector is at least 0.3 sure of are drawn.
 struct SkeletonOverlayView: View {
     let frame: PoseFrame?
 
@@ -26,7 +27,7 @@ struct SkeletonOverlayView: View {
         (.neck, .root),
     ]
 
-    private static let minJointConfidence: Float = 0.2
+    private static let minJointConfidence: Float = 0.3
 
     var body: some View {
         Canvas { context, size in
@@ -39,19 +40,24 @@ struct SkeletonOverlayView: View {
                 return CGPoint(x: joint.x * size.width, y: (1 - joint.y) * size.height)
             }
 
+            // The bones go into one layer so the glow is applied once, not per bone.
+            var bonePath = Path()
             for (a, b) in Self.bones {
                 guard let pointA = point(for: a), let pointB = point(for: b) else { continue }
-                var path = Path()
-                path.move(to: pointA)
-                path.addLine(to: pointB)
-                context.stroke(path, with: .color(.green), lineWidth: 3)
+                bonePath.move(to: pointA)
+                bonePath.addLine(to: pointB)
+            }
+            let boneStyle = StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+            context.drawLayer { layer in
+                layer.addFilter(.shadow(color: Theme.volt.opacity(0.7), radius: 7))
+                layer.stroke(bonePath, with: .color(Theme.volt), style: boneStyle)
             }
 
             for name in JointName.allCases {
                 guard let p = point(for: name) else { continue }
-                let radius: CGFloat = 5
+                let radius: CGFloat = 3.5
                 let rect = CGRect(x: p.x - radius, y: p.y - radius, width: radius * 2, height: radius * 2)
-                context.fill(Path(ellipseIn: rect), with: .color(.yellow))
+                context.fill(Path(ellipseIn: rect), with: .color(.white))
             }
         }
         .allowsHitTesting(false)

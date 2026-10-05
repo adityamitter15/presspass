@@ -1,47 +1,33 @@
 import SwiftUI
 
 @main
-struct PushupTimeApp: App {
+struct PressPassApp: App {
+    @StateObject private var history = WorkoutHistoryStore()
+
+    init() {
+        #if DEBUG
+        if let balance = AppEnvironment.current.demoBalance {
+            SharedStore.earnedBalanceMinutes = balance
+        }
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
-            RootTabView()
+            RootView()
+                .environmentObject(history)
+                .preferredColorScheme(.dark)
+                .tint(Theme.volt)
         }
     }
 }
 
-struct RootTabView: View {
-    private enum Tab {
-        case home, workout, setup
-    }
-
-    /// Launch arguments (DEBUG only) can open straight on the workout or its
-    /// summary; otherwise the app opens on Home.
-    @State private var selection: Tab = {
-        switch AppEnvironment.current.initialScreen {
-        case .workout, .summary: return .workout
-        case .home, nil: return .home
-        }
-    }()
-
+/// Home is the root; the workout opens over it as a full-screen cover and
+/// settings as a sheet.
+struct RootView: View {
     var body: some View {
-        TabView(selection: $selection) {
+        NavigationStack {
             HomeView()
-                .tabItem {
-                    Label("Home", systemImage: "house.fill")
-                }
-                .tag(Tab.home)
-
-            WorkoutView()
-                .tabItem {
-                    Label("Workout", systemImage: "figure.strengthtraining.traditional")
-                }
-                .tag(Tab.workout)
-
-            SetupView()
-                .tabItem {
-                    Label("Setup", systemImage: "gearshape.fill")
-                }
-                .tag(Tab.setup)
         }
         #if DEBUG
         .gateSpikePresenter()

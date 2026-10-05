@@ -5,19 +5,38 @@ import os.log
 /// How this launch was configured, resolved once from the launch arguments
 /// and the build. The Simulator has no camera, so it always replays the
 /// bundled demo session. A DEBUG build on a device can do the same with
-/// `-demo 1`, and `-screen`, `-demoSpeed` and `-demoLoops` steer screenshots.
+/// `-demo 1`. The rest (`-screen`, `-demoSpeed`, `-demoLoops`,
+/// `-demoHistory`, `-demoBalance`, `-mute`, `-debugState`) steer screenshots
+/// and exist in DEBUG builds only.
 struct AppEnvironment {
     /// A screen the app can open on, for `-screen` (DEBUG builds only).
     enum Screen: String {
         case home
         case workout
         case summary
+        case settings
+    }
+
+    /// A workout HUD state to pin for a screenshot, for `-debugState`
+    /// (DEBUG builds only).
+    enum DebugState: String {
+        case positioning
+        case shallow
+        case finishing
+        case nobody
     }
 
     let usesReplaySource: Bool
     let demoSpeed: Double
     let demoLoops: Bool
     let initialScreen: Screen?
+    /// Show a few in-memory sessions when the real history is empty.
+    let demoHistory: Bool
+    /// Overrides the banked minutes at launch, so screenshots show a number.
+    let demoBalance: Int?
+    /// No sound of any kind.
+    let isMuted: Bool
+    let debugState: DebugState?
 
     static let current = AppEnvironment(arguments: ProcessInfo.processInfo.arguments)
 
@@ -43,12 +62,20 @@ struct AppEnvironment {
 
         #if DEBUG
         initialScreen = value(after: "-screen").flatMap(Screen.init(rawValue:))
+        demoHistory = value(after: "-demoHistory") == "1"
+        demoBalance = value(after: "-demoBalance").flatMap(Int.init)
+        isMuted = value(after: "-mute") == "1"
+        debugState = value(after: "-debugState").flatMap(DebugState.init(rawValue:))
         #else
         initialScreen = nil
+        demoHistory = false
+        demoBalance = nil
+        isMuted = false
+        debugState = nil
         #endif
     }
 
-    /// The bundled demo recording: one clean set of 8 reps.
+    /// The bundled demo recording: one clean set of 4 reps.
     func loadDemoSession() -> RecordedSession? {
         guard let url = Bundle.main.url(forResource: Self.demoResource, withExtension: "json") else {
             os_log(.error, log: Self.log, "DemoSession.json not found in bundle")

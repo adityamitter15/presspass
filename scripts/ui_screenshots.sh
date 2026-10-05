@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Builds the Dev app for the iPhone 17 Pro simulator (iOS 26.5), runs it on
-# the replayed demo session, and saves screenshots and a short video of the
-# home, workout and summary screens. No camera or device needed.
+# the replayed demo session, and saves screenshots and a 20 second video of
+# the home, workout, summary and settings screens. No camera or device
+# needed. Every launch is muted. Pinned HUD states (-debugState) stand in for
+# moments the replay does not reach on cue.
 #
 # usage: scripts/ui_screenshots.sh [output-dir]     (default build/ui-shots)
 set -euo pipefail
@@ -52,42 +54,71 @@ fi
 
 xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b >/dev/null
+# A clean install, so no history or settings from an earlier run leak in.
+xcrun simctl uninstall "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun simctl install "$UDID" "$APP"
 xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100
 
-# launch <screen>: a fresh run of the app on that screen.
+# launch <args...>: a fresh run of the app with those launch arguments, muted,
+# on the replayed demo session, with a known number of banked minutes.
 launch() {
     xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-    xcrun simctl launch "$UDID" "$BUNDLE_ID" -screen "$1" -demo 1 >/dev/null
+    xcrun simctl launch "$UDID" "$BUNDLE_ID" -demo 1 -mute 1 -demoBalance 14 "$@" >/dev/null
 }
 
 shot() {
     xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1
 }
 
-launch home
+# Home, with nothing earned yet and then with a few days of passes.
+launch -screen home -demoHistory 0
+sleep 3
+shot home_empty
+
+launch -screen home -demoHistory 1
 sleep 3
 shot home
 
-launch summary
+# The workout. The cover opens about 0.35 s after launch and the replay starts
+# with it, so the sleeps below count from the start of the replay plus about
+# 1.5 s of launch.
+launch -screen workout -debugState positioning
 sleep 3
+shot workout_positioning
+
+launch -screen workout
+sleep 4.5
+shot workout_active_1
+sleep 5
+shot workout_active_2
+
+launch -screen workout -debugState shallow
+sleep 3
+shot workout_shallow
+
+launch -screen workout -debugState finishing
+sleep 3
+shot workout_finishing
+
+launch -screen workout -debugState nobody
+sleep 3
+shot workout_nobody
+
+launch -screen summary
+sleep 3.5
 shot summary
 
-# The set is 8 reps at 2 s each after a 1 s lead-in: 2 s in is the start of
-# the first rep, 9 s in is mid-set.
-launch workout
-sleep 2
-shot workout_start
-sleep 7
-shot workout_mid
+launch -screen settings
+sleep 3
+shot settings
 
-# 18 s of the workout screen from a fresh start.
+# 20 s of the live workout from a fresh start.
 xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/workout.mp4" >/dev/null 2>&1 &
 RECORDER_PID=$!
 sleep 2
-launch workout
-sleep 18
+launch -screen workout
+sleep 20
 kill -INT "$RECORDER_PID"
 wait "$RECORDER_PID" || true
 RECORDER_PID=""
@@ -97,6 +128,7 @@ xcrun simctl status_bar "$UDID" clear
 
 echo
 echo "wrote:"
-for name in home.png workout_start.png workout_mid.png summary.png workout.mp4; do
+for name in home_empty.png home.png workout_positioning.png workout_active_1.png workout_active_2.png \
+    workout_shallow.png workout_finishing.png workout_nobody.png summary.png settings.png workout.mp4; do
     echo "  $OUT/$name"
 done

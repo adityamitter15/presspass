@@ -54,6 +54,8 @@ targets:
         INFOPLIST_FILE: App/Info.plist
         CODE_SIGN_ENTITLEMENTS: App/PushupTime.entitlements
         GENERATE_INFOPLIST_FILE: NO
+        # The catalog only holds the launch screen colour; there is no app icon yet.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
     dependencies:
       - package: PushupCore
       - target: PushupTimeMonitor
@@ -87,6 +89,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.addymitter.pushuptime.dev
         INFOPLIST_FILE: App/Info.plist
         GENERATE_INFOPLIST_FILE: NO
+        # The catalog only holds the launch screen colour; there is no app icon yet.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
     dependencies:
       - package: PushupCore
 

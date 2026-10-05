@@ -134,7 +134,7 @@ final class CameraPoseSession: NSObject {
     private static func message(for reason: AVCaptureSession.InterruptionReason?) -> String {
         switch reason {
         case .videoDeviceNotAvailableWithMultipleForegroundApps:
-            return "iOS has paused the camera because something else is sharing the screen: a picture-in-picture video, a call, or iPhone Mirroring from a Mac. Close it and the camera comes back."
+            return "iOS has paused the camera because it thinks another app is on screen: a picture-in-picture video, a call, iPhone Mirroring, or Apple's Camera left open from the lock screen. Close it. If nothing is open, lock the phone and unlock it again, or restart it."
         case .videoDeviceInUseByAnotherClient:
             return "Another app is using the camera. Close it and the camera comes back."
         case .videoDeviceNotAvailableInBackground:

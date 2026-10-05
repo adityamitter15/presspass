@@ -5,6 +5,11 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    #if DEBUG
+    /// Asks Home to open the recorder once this sheet has closed. The
+    /// recorder is full screen, so it is never pushed inside the sheet.
+    var onOpenRecorder: (() -> Void)?
+    #endif
 
     @AppStorage(AppSettings.Key.soundMode) private var soundModeRaw = AppSettings.SoundMode.default.rawValue
     @AppStorage(AppSettings.Key.autoFinish) private var autoFinish = true
@@ -148,12 +153,21 @@ struct SettingsView: View {
             .tint(Theme.volt)
             .listRowBackground(Theme.ink700)
 
-            NavigationLink {
-                RecordingView()
+            Button {
+                onOpenRecorder?()
+                dismiss()
             } label: {
-                Text("Data collection mode")
-                    .foregroundStyle(Theme.textPrimary)
+                HStack {
+                    Text("Data collection mode")
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .listRowBackground(Theme.ink700)
 
             NavigationLink {

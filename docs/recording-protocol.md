@@ -7,12 +7,13 @@ How the evaluation dataset is recorded. The aim is a dataset that can answer fou
 3. Does it ever count reps when nobody is exercising?
 4. Does it still work on a person it has never seen?
 
-Everything is recorded with the in-app recorder (Workout tab, Data collection mode, debug builds only). The dataset itself holds only pose landmark coordinates and phone motion. Video, when saved, is kept privately and is not part of the dataset (see "Video" in `docs/data-format.md`).
+Everything is recorded with the in-app recorder (the Record data button on Home, or Data collection mode in Settings, debug builds only). The dataset itself holds only pose landmark coordinates and phone motion. Video, when saved, is kept privately and is not part of the dataset (see "Video" in `docs/data-format.md`).
 
 ## Setup
 
 - Phone on the floor, propped upright against something stable, front camera facing you head-on.
 - Your face and both hands must be in frame at the top of the rep.
+- Choose the person's label (S01, S02 and so on) under Person; Next person steps it on. Each take is labelled in the sheet that opens after Stop, and a saved take can be corrected afterwards from Saved takes (tap it to edit the count and tags).
 - The recorder saves the camera video of each take for participants who agreed to it. Switch Save video off in Setup for anyone who did not, or for any single take.
 - Distance is measured roughly from the phone to your hands:
 
@@ -21,6 +22,8 @@ Everything is recorded with the in-app recorder (Workout tab, Data collection mo
 | `near` | 0.6 to 0.9 m |
 | `mid` | 1.0 to 1.5 m |
 | `far` | 1.8 to 2.5 m |
+
+Hold the top position (arms extended) for two seconds before the first rep and for a second after the last, so the take shows a clean start and finish. Start and stop the take by hand: the recording should include you getting into position and getting up.
 
 Once a take has started, do not touch or move the phone until you stop it, except in the `phone_moved` cheat takes: the recorder also stores the phone's own motion, and a knock or a nudge would show up in it. Note what kind of floor the session is on in the notes field (for example carpet, wooden floorboards, concrete, yoga mat), because floor type matters for the motion data.
 
@@ -37,7 +40,7 @@ A movement that misses any of these is not a valid rep and is not counted in the
 
 ## Rules that keep the data honest
 
-- **Count in your head and type your own number.** The recorder hides the app's count until after you save, so your number is not influenced by it.
+- **Count in your head and type your own number.** The count box starts empty and is never filled in from the app's count. The recorder can show the app's count while you record or hide it (Show count while recording in Options), and each take records which. A take recorded with the count visible is a take where you may have been influenced by it, so those counts are checked again from the video by someone who has not seen the app's count. Use a blind take (count hidden) whenever the person's own count must stand on its own.
 - **Never discard a take because the app got it wrong.** Those takes are the most valuable ones. Discard only when you lost count or were interrupted.
 - **Vary the number of reps per set** (anything from 3 to 15). Short sets keep your count reliable.
 - **Change one thing per session, not per take.** A session is one sitting in one place: one lighting, one distance, one outfit.
@@ -56,6 +59,8 @@ A movement that misses any of these is not a valid rep and is not counted in the
 | 11 | Set | A few valid reps mixed with a few half reps | cheat `half_reps` | valid reps only |
 | 12 | Set | One other cheat, a different one each session (see below) | matching cheat tag | 0 |
 | 13 to 14 | Negative | Two clips of 20 s with no pushups (see below) | describe in notes | fixed at 0 |
+
+"This take is" in the recorder resets to real press-ups after every take, saved or discarded, so a cheat tag is never carried to the next take by accident. Check it at Start: when the take is a cheat or a negative the Start button and the banner above it turn amber.
 
 Cheats to rotate through at step 12:
 
@@ -87,7 +92,7 @@ Spread sessions across the conditions below. One combination per session is enou
 | `indoor_bright` | | | |
 | `dim` | | | |
 
-Alternate `fitted` and `loose` clothing between sessions. Include at least one session each for the `knee`, `wide` and `narrow` variants if you do them.
+Alternate `fitted` and `loose` clothing between sessions. Knuckle and knee press-ups are accepted variants as long as they are tagged: choose `knuckle` or `knee` under Variant before Start, and count a rep as valid under the same definition as any other. Include at least one session each for the `knuckle`, `knee`, `wide` and `narrow` variants if you do them.
 
 ## Other people
 

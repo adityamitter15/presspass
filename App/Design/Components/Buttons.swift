@@ -2,16 +2,20 @@ import SwiftUI
 
 /// The volt pill: the one primary action on a screen.
 struct PrimaryButtonStyle: ButtonStyle {
+    /// The fill. Volt unless a screen needs the button to warn, as the
+    /// recorder does for a take tagged as a cheat.
+    var tint: Color = Theme.volt
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(.title3, design: .rounded, weight: .bold))
-            .foregroundStyle(Theme.ink900)
+            .foregroundStyle(isEnabled ? Theme.ink900 : Theme.textTertiary)
             .frame(maxWidth: .infinity, minHeight: 56)
             .padding(.horizontal, Theme.Space.xl)
-            .background(Capsule().fill(isEnabled ? Theme.volt : Theme.ink600))
+            .background(Capsule().fill(isEnabled ? tint : Theme.ink600))
             .overlay(
                 Capsule().fill(.white.opacity(configuration.isPressed ? 0.18 : 0))
             )
@@ -25,11 +29,13 @@ struct PrimaryButtonStyle: ButtonStyle {
 struct PrimaryButton: View {
     let title: String
     var systemImage: String?
+    var tint: Color = Theme.volt
     let action: () -> Void
 
-    init(_ title: String, systemImage: String? = nil, action: @escaping () -> Void) {
+    init(_ title: String, systemImage: String? = nil, tint: Color = Theme.volt, action: @escaping () -> Void) {
         self.title = title
         self.systemImage = systemImage
+        self.tint = tint
         self.action = action
     }
 
@@ -41,7 +47,7 @@ struct PrimaryButton: View {
                 Text(title)
             }
         }
-        .buttonStyle(PrimaryButtonStyle())
+        .buttonStyle(PrimaryButtonStyle(tint: tint))
     }
 }
 

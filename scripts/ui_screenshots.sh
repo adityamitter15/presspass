@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Dev app for the iPhone 17 Pro simulator (iOS 26.5), runs it on
 # the replayed demo session, and saves screenshots and a 20 second video of
-# the home, workout, summary and settings screens. No camera or device
+# the home, workout, summary, settings and data recorder screens. No camera or device
 # needed. Every launch is muted. Pinned HUD states (-debugState) stand in for
 # moments the replay does not reach on cue.
 #
@@ -126,6 +126,43 @@ launch -screen settings
 sleep 3
 shot settings
 
+# The data recorder, stage by stage. Its setup is pinned by the launch
+# arguments (subject S07, knuckle, shown count unless -recorderCount 0), and
+# -demoRecordings 1 gives it three in-memory takes so nothing is written.
+# The recorder opens about 0.35 s after launch; a take starts 1.2 s after it
+# opens and the label shot stops it 6 s later.
+wlaunch -screen recorder -demoRecordings 1
+sleep 3
+shot recorder_setup
+
+wlaunch -screen recorder -demoRecordings 1 -recorderScroll end
+sleep 3.5
+shot recorder_setup_lower
+
+wlaunch -screen recorder -demoRecordings 1 -recorderCheat half_reps -recorderScroll take
+sleep 3.5
+shot recorder_setup_cheat
+
+wlaunch -screen recorder-recording -demoRecordings 1
+sleep 6
+shot recorder_recording
+
+wlaunch -screen recorder-recording -demoRecordings 1 -recorderCount 0
+sleep 6
+shot recorder_recording_blind
+
+wlaunch -screen recorder-label -demoRecordings 1
+sleep 10
+shot recorder_label
+
+wlaunch -screen recorder-list -demoRecordings 1
+sleep 3.5
+shot recorder_list
+
+wlaunch -screen recorder-list -demoRecordings 1 -recorderEdit 1
+sleep 4.5
+shot recorder_edit
+
 # 20 s of the live workout from a fresh start.
 xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/workout.mp4" >/dev/null 2>&1 &
@@ -143,6 +180,8 @@ xcrun simctl status_bar "$UDID" clear
 echo
 echo "wrote:"
 for name in home_empty.png home.png workout_positioning.png workout_active_1.png workout_active_2.png \
-    workout_shallow.png workout_finishing.png workout_nobody.png summary.png settings.png workout.mp4; do
+    workout_shallow.png workout_finishing.png workout_nobody.png summary.png settings.png \
+    recorder_setup.png recorder_setup_lower.png recorder_setup_cheat.png recorder_recording.png \
+    recorder_recording_blind.png recorder_label.png recorder_list.png recorder_edit.png workout.mp4; do
     echo "  $OUT/$name"
 done

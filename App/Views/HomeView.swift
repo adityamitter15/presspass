@@ -13,6 +13,11 @@ struct HomeView: View {
     @State private var balanceMinutes = 0
     @State private var didApplyLaunchScreen = false
     @State private var launchMode: WorkoutView.Launch = .live
+    #if DEBUG
+    /// Non-nil while the recorder is open full screen.
+    @State private var recorderLaunch: RecordingView.Launch?
+    @State private var openRecorderAfterSettings = false
+    #endif
 
     private static let zoomID = "start-workout"
 
@@ -39,9 +44,14 @@ struct HomeView: View {
             WorkoutView(launch: launchMode)
                 .navigationTransition(.zoom(sourceID: Self.zoomID, in: zoomNamespace))
         }
-        .sheet(isPresented: $showSettings, onDismiss: refresh) {
-            SettingsView()
+        .sheet(isPresented: $showSettings, onDismiss: settingsDismissed) {
+            settingsSheet
         }
+        #if DEBUG
+        .fullScreenCover(item: $recorderLaunch) { launch in
+            RecordingView(launch: launch)
+        }
+        #endif
         .onAppear(perform: refresh)
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active { refresh() }
@@ -59,6 +69,27 @@ struct HomeView: View {
         balanceMinutes = SharedStore.earnedBalanceMinutes
     }
 
+    @ViewBuilder
+    private var settingsSheet: some View {
+        #if DEBUG
+        // The recorder is full screen, so Settings closes first and the
+        // cover opens from `settingsDismissed`.
+        SettingsView(onOpenRecorder: { openRecorderAfterSettings = true })
+        #else
+        SettingsView()
+        #endif
+    }
+
+    private func settingsDismissed() {
+        refresh()
+        #if DEBUG
+        if openRecorderAfterSettings {
+            openRecorderAfterSettings = false
+            recorderLaunch = .setup
+        }
+        #endif
+    }
+
     // MARK: Toolbar
 
     @ToolbarContentBuilder
@@ -71,6 +102,20 @@ struct HomeView: View {
                 .accessibilityAddTraits(.isHeader)
         }
         .hiddenSharedBackground()
+        #if DEBUG
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                recorderLaunch = .setup
+            } label: {
+                Image(systemName: "record.circle")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Record data")
+        }
+        #endif
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 showSettings = true
@@ -211,6 +256,14 @@ struct HomeView: View {
             }
         case .settings:
             showSettings = true
+        case .recorder:
+            recorderLaunch = .setup
+        case .recorderRecording:
+            recorderLaunch = .recording
+        case .recorderLabel:
+            recorderLaunch = .label
+        case .recorderList:
+            recorderLaunch = .list
         case .home, nil:
             break
         }

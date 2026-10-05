@@ -11,27 +11,87 @@ struct RecordingSummary: Identifiable, Equatable {
     let liveReps: Int?
     let subject: String
     let tags: RecordedSession.Tags
+    let notes: String
+    let poseLabel: PoseLabel?
     let createdAt: Date
     let frameCount: Int
     /// True when the session names a video and that file is next to it.
     let hasVideo: Bool
+    /// Whether the app's count was on screen while this take was recorded.
+    /// nil for files from before that was recorded.
+    let countVisible: Bool?
+    /// ISO 8601 time of the last manual edit of the labels, nil if never edited.
+    let editedAt: String?
 
     var id: URL { url }
+
+    init(
+        url: URL,
+        kind: RecordedSession.Kind,
+        trueReps: Int?,
+        liveReps: Int?,
+        subject: String,
+        tags: RecordedSession.Tags,
+        notes: String = "",
+        poseLabel: PoseLabel? = nil,
+        createdAt: Date,
+        frameCount: Int,
+        hasVideo: Bool,
+        countVisible: Bool? = nil,
+        editedAt: String? = nil
+    ) {
+        self.url = url
+        self.kind = kind
+        self.trueReps = trueReps
+        self.liveReps = liveReps
+        self.subject = subject
+        self.tags = tags
+        self.notes = notes
+        self.poseLabel = poseLabel
+        self.createdAt = createdAt
+        self.frameCount = frameCount
+        self.hasVideo = hasVideo
+        self.countVisible = countVisible
+        self.editedAt = editedAt
+    }
+
+    init(session: RecordedSession, url: URL, modified: Date, hasVideo: Bool) {
+        self.init(
+            url: url,
+            kind: session.kind,
+            trueReps: session.trueReps,
+            liveReps: session.live?.reps,
+            subject: session.subject,
+            tags: session.tags,
+            notes: session.notes,
+            poseLabel: session.poseLabel,
+            createdAt: ISO8601DateFormatter().date(from: session.createdAt) ?? modified,
+            frameCount: session.frames.count,
+            hasVideo: hasVideo,
+            countVisible: session.countVisible,
+            editedAt: session.editedAt
+        )
+    }
 }
 
 /// File handling for the DEBUG recorder: saves sessions (and their optional
-/// video) into `Documents/Recordings/`, lists them, deletes them behind a
-/// guard and zips the whole directory for export. Safe to call from any queue (the
-/// summary cache is guarded by a lock).
+/// video) into `Documents/Recordings/`, lists them, rewrites their labels,
+/// deletes them behind a guard and zips the whole directory for export. Safe
+/// to call from any queue (the summary cache is guarded by a lock).
+///
+/// With `demoSummaries` the store is in-memory only: it lists, edits and
+/// deletes those samples and writes no files, for screenshots.
 final class RecordingStore: @unchecked Sendable {
     enum StoreError: Error, LocalizedError {
         case notAManagedRecording
         case nothingToExport
         case archiveFailed
         case videoWithoutInfo
+        case invalidLabels(String)
 
         var errorDescription: String? {
             switch self {
+            case .invalidLabels(let reason): return reason
             case .videoWithoutInfo: return "A video file was given without the session's video details."
             case .notAManagedRecording: return "That file is not a recording this app wrote."
             case .nothingToExport: return "There are no recordings to export."
@@ -48,11 +108,17 @@ final class RecordingStore: @unchecked Sendable {
     private let directoryOverride: URL?
     private let lock = NSLock()
     private var cache: [URL: CacheEntry] = [:]
+    /// Non-nil in demo mode: the whole store lives in this array.
+    private var demoSummaries: [RecordingSummary]?
 
     /// `directory` replaces `Documents/Recordings/`, for tests.
-    init(directory: URL? = nil) {
+    init(directory: URL? = nil, demoSummaries: [RecordingSummary]? = nil) {
         directoryOverride = directory
+        self.demoSummaries = demoSummaries
+        isDemo = demoSummaries != nil
     }
+
+    let isDemo: Bool
 
     /// `Documents/Recordings/`, created on demand.
     func recordingsDirectory() throws -> URL {
@@ -79,6 +145,16 @@ final class RecordingStore: @unchecked Sendable {
     /// directory.
     @discardableResult
     func save(_ session: RecordedSession, temporaryVideo: URL? = nil) throws -> URL {
+        if isDemo {
+            let name = RecordedSession.fileName(kind: session.kind, createdAt: session.createdAt, id: session.id)
+            let url = URL(fileURLWithPath: "/demo").appendingPathComponent(name)
+            let summary = RecordingSummary(session: session, url: url, modified: Date(), hasVideo: false)
+            lock.lock()
+            demoSummaries?.append(summary)
+            lock.unlock()
+            if let temporaryVideo { try? FileManager.default.removeItem(at: temporaryVideo) }
+            return url
+        }
         let directory = try recordingsDirectory()
         let name = RecordedSession.fileName(kind: session.kind, createdAt: session.createdAt, id: session.id)
         let url = directory.appendingPathComponent(name)
@@ -115,6 +191,10 @@ final class RecordingStore: @unchecked Sendable {
     /// Saved recordings, newest first. Each file is decoded at most once per
     /// modification date; unreadable files are skipped.
     func list() -> [RecordingSummary] {
+        lock.lock()
+        let demo = demoSummaries
+        lock.unlock()
+        if let demo { return demo.sorted { $0.createdAt > $1.createdAt } }
         guard let directory = try? recordingsDirectory() else { return [] }
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: directory,
@@ -144,6 +224,12 @@ final class RecordingStore: @unchecked Sendable {
     /// inside the Recordings directory whose name
     /// `RecordedSession.isRecordingFileName` accepts can be deleted.
     func delete(_ url: URL) throws {
+        if isDemo {
+            lock.lock()
+            demoSummaries?.removeAll { $0.url == url }
+            lock.unlock()
+            return
+        }
         let directory = try recordingsDirectory()
         let parent = url.deletingLastPathComponent().resolvingSymlinksInPath()
         guard parent == directory.resolvingSymlinksInPath(),
@@ -163,9 +249,121 @@ final class RecordingStore: @unchecked Sendable {
         }
     }
 
+    // MARK: - Editing labels
+
+    /// Rewrites the labels of one saved take. Loads the session, applies
+    /// `edit`, then puts back every field the edit must not touch (the frames,
+    /// motion, video, live result, device, id, creation time, kind and the
+    /// count-visible record) so a bug in `edit` cannot damage the recording,
+    /// checks the labels, stamps `editedAt` and writes the file atomically
+    /// under the same name. The video file is not touched. Throws
+    /// `invalidLabels` without writing anything when the result is not a
+    /// valid take.
+    func updateLabels(of url: URL, _ edit: (inout RecordedSession) -> Void) throws {
+        if isDemo {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let index = demoSummaries?.firstIndex(where: { $0.url == url }),
+                  let current = demoSummaries?[index] else {
+                throw StoreError.notAManagedRecording
+            }
+            let edited = try Self.editedSession(from: Self.stubSession(for: current), edit)
+            demoSummaries?[index] = RecordingSummary(
+                session: edited, url: url, modified: current.createdAt, hasVideo: current.hasVideo
+            )
+            return
+        }
+
+        let directory = try recordingsDirectory()
+        let parent = url.deletingLastPathComponent().resolvingSymlinksInPath()
+        guard parent == directory.resolvingSymlinksInPath(),
+              RecordedSession.isRecordingFileName(url.lastPathComponent) else {
+            throw StoreError.notAManagedRecording
+        }
+        let original = try RecordedSession.load(from: url)
+        let edited = try Self.editedSession(from: original, edit)
+        try edited.write(to: url)
+        lock.lock()
+        cache[url] = nil
+        lock.unlock()
+    }
+
+    /// The pure part of `updateLabels`: the edited, checked copy of `original`.
+    static func editedSession(
+        from original: RecordedSession,
+        now: Date = Date(),
+        _ edit: (inout RecordedSession) -> Void
+    ) throws -> RecordedSession {
+        var session = original
+        edit(&session)
+
+        // Not label fields: always the original's.
+        session.schema = original.schema
+        session.id = original.id
+        session.createdAt = original.createdAt
+        session.kind = original.kind
+        session.device = original.device
+        session.live = original.live
+        session.frames = original.frames
+        session.motion = original.motion
+        session.video = original.video
+        session.countVisible = original.countVisible
+
+        session.subject = session.subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        session.notes = session.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !session.subject.isEmpty else {
+            throw StoreError.invalidLabels("The subject cannot be empty.")
+        }
+
+        switch session.kind {
+        case .set:
+            guard let reps = session.trueReps, (0...300).contains(reps) else {
+                throw StoreError.invalidLabels("The true count must be a whole number from 0 to 300.")
+            }
+            session.poseLabel = original.poseLabel
+        case .negative:
+            session.trueReps = 0
+            session.poseLabel = original.poseLabel
+        case .pose:
+            session.trueReps = nil
+            session.poseLabel = session.poseLabel ?? original.poseLabel
+        }
+        if session.kind != .set {
+            session.tags.tempo = .na
+            session.tags.variant = .na
+            session.tags.cheat = .none
+        }
+        session.editedAt = RecordedSession.iso8601String(from: now)
+        return session
+    }
+
+    /// A frameless session standing in for a demo summary, so demo edits go
+    /// through the same checks as real ones.
+    private static func stubSession(for summary: RecordingSummary) -> RecordedSession {
+        RecordedSession(
+            id: UUID().uuidString,
+            createdAt: RecordedSession.iso8601String(from: summary.createdAt),
+            kind: summary.kind,
+            trueReps: summary.trueReps,
+            poseLabel: summary.poseLabel,
+            subject: summary.subject,
+            tags: summary.tags,
+            notes: summary.notes,
+            device: DeviceInfo(
+                model: "demo", systemVersion: "", appVersion: "", appBuild: "",
+                poseModel: "", cameraPosition: "front", featureVersion: ""
+            ),
+            live: summary.liveReps.map { LiveResult(reps: $0, rejectedReps: 0, classifier: "heuristic") },
+            frames: [],
+            countVisible: summary.countVisible,
+            editedAt: summary.editedAt
+        )
+    }
+
     /// Zips the Recordings directory into the temporary directory as
     /// `pushup-recordings-<yyyyMMdd-HHmmss>.zip` and returns its URL.
     func exportArchive() throws -> URL {
+        if isDemo { throw StoreError.nothingToExport }
         let directory = try recordingsDirectory()
         let hasRecordings = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
             .contains(where: RecordedSession.isRecordingFileName)
@@ -215,22 +413,13 @@ final class RecordingStore: @unchecked Sendable {
 
     private static func decodeSummary(at url: URL, modified: Date) -> RecordingSummary? {
         guard let session = try? RecordedSession.load(from: url) else { return nil }
-        return RecordingSummary(
-            url: url,
-            kind: session.kind,
-            trueReps: session.trueReps,
-            liveReps: session.live?.reps,
-            subject: session.subject,
-            tags: session.tags,
-            createdAt: ISO8601DateFormatter().date(from: session.createdAt) ?? modified,
-            frameCount: session.frames.count,
-            hasVideo: session.video.map {
-                $0.file == RecordedSession.videoFileName(forSessionFileName: url.lastPathComponent)
-                    && FileManager.default.fileExists(
-                        atPath: url.deletingLastPathComponent().appendingPathComponent($0.file).path
-                    )
-            } ?? false
-        )
+        let hasVideo = session.video.map {
+            $0.file == RecordedSession.videoFileName(forSessionFileName: url.lastPathComponent)
+                && FileManager.default.fileExists(
+                    atPath: url.deletingLastPathComponent().appendingPathComponent($0.file).path
+                )
+        } ?? false
+        return RecordingSummary(session: session, url: url, modified: modified, hasVideo: hasVideo)
     }
 }
 #endif

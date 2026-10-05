@@ -7,7 +7,8 @@ import os.log
 /// and the build. The Simulator has no camera, so it always replays the
 /// bundled demo session. A DEBUG build on a device can do the same with
 /// `-demo 1`. The rest (`-screen`, `-demoSpeed`, `-demoLoops`,
-/// `-demoHistory`, `-demoBalance`, `-mute`, `-debugState`) steer screenshots
+/// `-demoHistory`, `-demoBalance`, `-mute`, `-debugState`, `-demoRecordings`,
+/// `-recorderCheat`, `-recorderCount`, `-recorderEdit`) steer screenshots
 /// and exist in DEBUG builds only.
 struct AppEnvironment {
     /// A screen the app can open on, for `-screen` (DEBUG builds only).
@@ -16,6 +17,11 @@ struct AppEnvironment {
         case workout
         case summary
         case settings
+        /// The DEBUG data recorder, stage by stage.
+        case recorder
+        case recorderRecording = "recorder-recording"
+        case recorderLabel = "recorder-label"
+        case recorderList = "recorder-list"
     }
 
     /// A workout HUD state to pin for a screenshot, for `-debugState`
@@ -41,6 +47,17 @@ struct AppEnvironment {
     /// Absolute path of a still image shown behind the skeleton in replay
     /// mode, in place of the dark placeholder, for `-demoBackdrop`.
     let demoBackdropPath: String?
+    /// The recorder shows three in-memory sample takes and writes no files,
+    /// for `-demoRecordings 1`.
+    let demoRecordings: Bool
+    /// Recorder screenshots: the cheat tag to start with (`-recorderCheat
+    /// half_reps`), whether the live count is shown (`-recorderCount 0`), and
+    /// whether the list opens the edit sheet (`-recorderEdit 1`).
+    let recorderCheat: RecordedSession.Tags.Cheat?
+    let recorderCountVisible: Bool?
+    let recorderOpensEdit: Bool
+    /// Scrolls the recorder's setup to `end` or to the `take` card, for `-recorderScroll`.
+    let recorderScroll: String?
 
     static let current = AppEnvironment(arguments: ProcessInfo.processInfo.arguments)
 
@@ -71,6 +88,11 @@ struct AppEnvironment {
         isMuted = value(after: "-mute") == "1"
         debugState = value(after: "-debugState").flatMap(DebugState.init(rawValue:))
         demoBackdropPath = value(after: "-demoBackdrop")
+        demoRecordings = value(after: "-demoRecordings") == "1"
+        recorderCheat = value(after: "-recorderCheat").flatMap(RecordedSession.Tags.Cheat.init(rawValue:))
+        recorderCountVisible = value(after: "-recorderCount").map { $0 != "0" }
+        recorderOpensEdit = value(after: "-recorderEdit") == "1"
+        recorderScroll = value(after: "-recorderScroll")
         #else
         initialScreen = nil
         demoHistory = false
@@ -78,6 +100,11 @@ struct AppEnvironment {
         isMuted = false
         debugState = nil
         demoBackdropPath = nil
+        demoRecordings = false
+        recorderCheat = nil
+        recorderCountVisible = nil
+        recorderOpensEdit = false
+        recorderScroll = nil
         #endif
     }
 

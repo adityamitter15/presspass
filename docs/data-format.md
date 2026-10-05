@@ -14,6 +14,8 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 - Absent optional values are omitted from the JSON rather than written as `null`. A reader should treat a missing key and `null` the same way.
 - Size is roughly 45 to 70 kB per recorded second at 30 fps, so a take at the 300 second limit is about 14 to 20 MB. Motion adds roughly 10 to 15 kB per recorded second (100 samples of 10 numbers).
 - `motion` and `video` were added without changing the schema number. A file without them is still a valid schema 2 file and loads with no motion and no video.
+- `countVisible` and `editedAt` were added without changing the schema number. Files without them still load; a missing key and `null` mean the same as "unknown" and "never edited". The `knuckle` variant is new; a reader of the older enum would not know it.
+- Labels can be corrected after saving (the true count, subject, variant, tempo, `cheat`, lighting, distance, clothing and notes). Saving an edit rewrites the same file atomically under the same name, changes only those fields and sets `editedAt`. The kind, `id`, `createdAt`, `device`, `live`, `frames`, `motion`, `video` and `countVisible` are written back exactly as they were.
 - A take recorded with video also writes `<same base name>.mp4` in the same directory, for example `set_20260704-093015_3f2504e0.mp4`. "Export all" zips it with the rest; deleting a recording in the app deletes its video too.
 
 ## Top level
@@ -34,6 +36,8 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 | `frames` | array | One entry per camera frame, see "Frames". |
 | `motion` | object, optional | The phone's own motion during the take, see "Motion". Absent in early files and when the device had no motion sensors. |
 | `video` | object, optional | The camera video saved for the take, see "Video". Absent when no video was saved. |
+| `countVisible` | boolean, optional | `true` when the app's own live count was shown on screen (and its rep sounds played) while this take was recorded, `false` for a blind take. Absent in files recorded before the recorder could show it, when the count was always hidden. |
+| `editedAt` | string, optional | ISO 8601 in UTC, whole seconds. When the labels of this file were last corrected by hand in the recorder. Absent when the file has never been edited. |
 
 ## Ground truth
 
@@ -41,7 +45,7 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 - `negative`: a clip in which nothing should count, such as holding a plank or stretching. `trueReps` is always `0`.
 - `pose`: a held pose with no repetitions. There is no rep count, so `trueReps` is absent. `poseLabel` says which pose was held (`up`, `down`, `not_pushup`), matching the labels the pose classifier produces.
 
-`trueReps` is entered by a person who could not see the app's count. The recorder hides it while recording and while the number is typed, and shows it only after the take is saved.
+`trueReps` is typed in by the person after stopping, and the field always starts empty: it is never filled in from the app's count. Whether that person could see the app's count while recording depends on the take: see `countVisible`. When it is `true`, or absent in an older file, the count was on screen while recording, and the count should be checked again from the video by someone who has not seen the app's count. The recorder never shows the app's count while the number is typed; it shows it only after the take is saved.
 
 ## Tags
 
@@ -53,7 +57,7 @@ All values are strings. For `negative` and `pose` takes the recorder forces `tem
 | `distance` | `near`, `mid`, `far` (phone to hands, ranges in the protocol) |
 | `clothing` | `fitted`, `loose` |
 | `tempo` | `slow`, `normal`, `fast`, `na` |
-| `variant` | `standard`, `knee`, `wide`, `narrow`, `na` |
+| `variant` | `standard`, `knuckle`, `knee`, `wide`, `narrow`, `na` |
 | `cheat` | `none`, `half_reps`, `arm_wave`, `phone_moved`, `video_replay`, `other` |
 
 ## Device
@@ -77,7 +81,7 @@ All values are strings. For `negative` and `pose` takes the recorder forces `tem
 | `rejectedReps` | Rep attempts the app rejected for coming too soon after the previous one. |
 | `classifier` | `heuristic` or `coreml`: which pose classifier was active. |
 
-`live` was hidden from the person while they entered `trueReps`.
+`live` was never shown while `trueReps` was typed. During recording it was shown only if `countVisible` is `true`.
 
 ## Frames
 

@@ -40,6 +40,7 @@ public struct RecordedSession: Codable, Equatable {
 
         public enum Variant: String, Codable, CaseIterable {
             case standard
+            case knuckle
             case knee
             case wide
             case narrow
@@ -108,6 +109,15 @@ public struct RecordedSession: Codable, Equatable {
     /// and is described by `VideoInfo`. nil when no video was saved (early
     /// files, takes recorded with video switched off, simulator).
     public var video: VideoInfo?
+    /// True when the app's own live count was shown on screen while this take
+    /// was recorded, false for a blind take. nil in files written before the
+    /// recorder could show it (the count was always hidden then). Omitted from
+    /// the JSON when nil.
+    public var countVisible: Bool?
+    /// ISO 8601 UTC time of the last manual edit of the labels (true count,
+    /// subject, tags, notes). nil when the file has never been edited. Omitted
+    /// from the JSON when nil.
+    public var editedAt: String?
 
     public init(
         schema: Int = RecordedSession.currentSchema,
@@ -123,7 +133,9 @@ public struct RecordedSession: Codable, Equatable {
         live: LiveResult?,
         frames: [RecordedFrame],
         motion: MotionStream? = nil,
-        video: VideoInfo? = nil
+        video: VideoInfo? = nil,
+        countVisible: Bool? = nil,
+        editedAt: String? = nil
     ) {
         self.schema = schema
         self.id = id
@@ -139,6 +151,8 @@ public struct RecordedSession: Codable, Equatable {
         self.frames = frames
         self.motion = motion
         self.video = video
+        self.countVisible = countVisible
+        self.editedAt = editedAt
     }
 }
 
@@ -452,6 +466,72 @@ extension RecordedSession {
             throw RecordedSessionError.unsupportedSchema(probe.schema)
         }
         return try decoder.decode(RecordedSession.self, from: data)
+    }
+
+    // MARK: - Subject labels
+
+    /// The subject label for the next person: the trailing number is
+    /// incremented and keeps its zero padding ("S01" to "S02", "S09" to
+    /// "S10", "S99" to "S100"). A label with no trailing digits gets "2"
+    /// appended. Surrounding whitespace is dropped first.
+    public static func nextSubject(after subject: String) -> String {
+        let (prefix, digits) = splitTrailingDigits(subject)
+        guard !digits.isEmpty else { return prefix + "2" }
+        return prefix + stepDigits(digits, by: 1)
+    }
+
+    /// The label one step back: the trailing number is decremented at the
+    /// same width ("S10" to "S09", "S100" to "S099"). The number never goes below zero,
+    /// and a label with no trailing digits is returned unchanged.
+    public static func previousSubject(before subject: String) -> String {
+        let (prefix, digits) = splitTrailingDigits(subject)
+        guard !digits.isEmpty else { return prefix }
+        return prefix + stepDigits(digits, by: -1)
+    }
+
+    private static func splitTrailingDigits(_ subject: String) -> (prefix: String, digits: String) {
+        let trimmed = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        var digits: [Character] = []
+        var rest = Substring(trimmed)
+        while let last = rest.last, last.isASCII, last.isNumber {
+            digits.append(last)
+            rest = rest.dropLast()
+        }
+        return (String(rest), String(digits.reversed()))
+    }
+
+    /// Adds or subtracts one on a string of ASCII digits, with carry, so a
+    /// number of any length works. The result is zero padded back to the
+    /// original width and grows only when it has to ("99" to "100").
+    /// Subtracting from zero leaves it unchanged.
+    private static func stepDigits(_ digits: String, by delta: Int) -> String {
+        var values = digits.compactMap(\.wholeNumberValue)
+        let width = values.count
+        var index = width - 1
+        if delta > 0 {
+            while index >= 0 {
+                if values[index] == 9 {
+                    values[index] = 0
+                    index -= 1
+                } else {
+                    values[index] += 1
+                    break
+                }
+            }
+            if index < 0 { values.insert(1, at: 0) }
+        } else {
+            guard values.contains(where: { $0 != 0 }) else { return digits }
+            while index >= 0 {
+                if values[index] == 0 {
+                    values[index] = 9
+                    index -= 1
+                } else {
+                    values[index] -= 1
+                    break
+                }
+            }
+        }
+        return values.map(String.init).joined()
     }
 
     // MARK: - File names

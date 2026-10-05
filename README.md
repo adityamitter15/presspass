@@ -28,7 +28,7 @@ Everything from joint mapping onwards lives in a Swift package, `Packages/Pushup
 
 ## How it is evaluated
 
-1. **Record.** A debug recorder saves each take as the raw landmark stream plus the phone's own motion, with condition tags (lighting, distance, clothing, tempo) and the number of valid reps as counted by the person. The app's count is hidden until that number has been saved, so the label cannot be influenced by it.
+1. **Record.** A debug recorder saves each take as the raw landmark stream plus the phone's own motion, with condition tags (lighting, distance, clothing, tempo) and the number of valid reps as counted by the person. The app's count is shown or hidden per take and each take records which; the number box starts empty and is never filled in from the app's count.
 2. **Replay.** `pushup-eval` runs every recorded take through `PushupPipeline` and writes the predicted count, the time of each counted rep and how many frames each gate rejected.
 3. **Report.** A small Python package computes exact-count accuracy, off-by-one accuracy, error in reps, signed bias, reps wrongly awarded to cheat takes, and false reps per minute on clips with no exercise in them. Confidence intervals come from a bootstrap over sittings, because takes recorded in one sitting are not independent.
 

@@ -16,21 +16,36 @@ struct RecordingSetup {
     /// Whether to save the camera video of this take as well. Ignored when
     /// the pose source has no camera.
     var saveVideo: Bool
+    /// Whether the app's live count is shown on screen (and sounded) while
+    /// this take is recorded. Stored in the session as `countVisible`.
+    var countVisible: Bool
 }
 
 /// A finished take waiting for the user to save or discard it. Holds only
 /// what the UI may show: the app's own count lives privately in the view
 /// model so it can never reach the screen before the true count is entered.
+/// The tags can still be corrected while it waits.
 struct PendingTake: Identifiable, Equatable {
     let id: String
     let kind: RecordedSession.Kind
+    let subject: String
+    let poseLabel: PoseLabel
+    var tags: RecordedSession.Tags
     let frameCount: Int
     let duration: TimeInterval
     let stoppedAutomatically: Bool
 }
 
+/// Shown on the setup screen after a take is saved. This is the one place the
+/// app's count appears next to the true one, and only once the take is saved.
+struct SavedNotice: Identifiable, Equatable {
+    let id = UUID()
+    let text: String
+}
+
 /// Total of what has been saved so far, to track progress against a target.
 struct RecordingTotals: Equatable {
+    var people = 0
     var sets = 0
     var trueReps = 0
     var negatives = 0
@@ -39,6 +54,7 @@ struct RecordingTotals: Equatable {
     init() {}
 
     init(_ summaries: [RecordingSummary]) {
+        people = Set(summaries.map { $0.subject.trimmingCharacters(in: .whitespaces).uppercased() }).count
         for summary in summaries {
             switch summary.kind {
             case .set:
@@ -76,6 +92,17 @@ final class RecordingViewModel: ObservableObject {
     @Published private(set) var isSaving = false
     @Published private(set) var saved: [RecordingSummary] = []
     @Published private(set) var totals = RecordingTotals()
+    /// What the live screen shows. In a blind take `shownReps` stays 0 and
+    /// the shallow flash never fires: the count is not published at all.
+    @Published private(set) var liveDepth: Double = 0
+    @Published private(set) var shownReps = 0
+    @Published private(set) var isShallowFlash = false
+    /// Whether the take now running shows the count.
+    @Published private(set) var activeCountVisible = false
+    @Published private(set) var savedNotice: SavedNotice?
+    /// What the running take was tagged as, for a line on the live screen.
+    @Published private(set) var activeTakeLabel = ""
+    @Published private(set) var activeTakeIsUnusual = false
     @Published private(set) var isExporting = false
     @Published var errorMessage: String?
     /// Something that did not stop a take being saved, such as a video that
@@ -84,7 +111,10 @@ final class RecordingViewModel: ObservableObject {
 
     private let poseSource: PoseSource
     private let motionRecorder = MotionRecorder()
-    private let store = RecordingStore()
+    private let store = RecordingStore(
+        demoSummaries: AppEnvironment.current.demoRecordings ? RecordingDemo.takes : nil
+    )
+    private let liveFeedback = RecorderLiveFeedback()
     private let ioQueue = DispatchQueue(label: "com.addymitter.pushuptime.recorder.io", qos: .utility)
     private var isCameraActive = false
 
@@ -168,7 +198,25 @@ final class RecordingViewModel: ObservableObject {
             frames = []
             pipeline = nil
             discardTakeVideo()
+            liveFeedback.end()
         }
+    }
+
+    /// Throws away the take in progress (after the user confirmed), removing
+    /// its temporary video, and goes back to setup. The camera stays on.
+    func cancelTake() {
+        guard isRecording else { return }
+        isRecording = false
+        _ = motionRecorder.endTake()
+        frames = []
+        pipeline = nil
+        setup = nil
+        recordedFrameCount = 0
+        elapsedSeconds = 0
+        discardTakeVideo()
+        liveFeedback.end()
+        resetLiveDisplay()
+        RecorderPrefs.resetCheat()
     }
 
     // MARK: - Recording
@@ -193,6 +241,12 @@ final class RecordingViewModel: ObservableObject {
         takeCreatedAt = Date()
         takeDevice = Self.deviceInfo()
         takeMotion = nil
+        savedNotice = nil
+        resetLiveDisplay()
+        activeCountVisible = setup.countVisible
+        activeTakeLabel = RecorderCopy.liveLabel(setup)
+        activeTakeIsUnusual = RecorderCopy.isUnusual(kind: setup.kind, cheat: setup.tags.cheat)
+        liveFeedback.begin(countVisible: setup.countVisible)
         beginTakeVideo(if: setup.saveVideo)
         isRecording = true
         startCamera()
@@ -207,6 +261,7 @@ final class RecordingViewModel: ObservableObject {
         guard isRecording, let setup else { return }
         isRecording = false
         pipeline = nil
+        liveFeedback.end()
         let buffered = motionRecorder.endTake()
         // Stop feeding the writer first. A frame the camera queue is handing
         // over right now is harmless: the writer ignores it once finished.
@@ -216,12 +271,17 @@ final class RecordingViewModel: ObservableObject {
             errorMessage = "No frames were recorded, nothing to save."
             frames = []
             discardTakeVideo()
+            resetLiveDisplay()
+            RecorderPrefs.resetCheat()
             return
         }
         takeMotion = Self.motionStream(from: buffered, originPresentationTime: originPresentationTime)
         let take = PendingTake(
             id: takeID,
             kind: setup.kind,
+            subject: setup.subject,
+            poseLabel: setup.poseLabel,
+            tags: setup.tags,
             frameCount: frames.count,
             duration: last.t,
             stoppedAutomatically: automatically
@@ -256,6 +316,28 @@ final class RecordingViewModel: ObservableObject {
         takeMotion = nil
         setup = nil
         discardTakeVideo()
+        resetLiveDisplay()
+        RecorderPrefs.resetCheat()
+    }
+
+    /// Changes the tags of the take waiting to be saved, in case they were
+    /// wrong at Start. Only the tags of a set can differ from what the kind
+    /// forces, and `savePending` applies that rule again.
+    func updatePendingTags(_ tags: RecordedSession.Tags) {
+        guard pendingTake != nil, !isSaving else { return }
+        setup?.tags = tags
+        pendingTake?.tags = tags
+    }
+
+    func dismissNotice() {
+        savedNotice = nil
+    }
+
+    private func resetLiveDisplay() {
+        liveDepth = 0
+        shownReps = 0
+        isShallowFlash = false
+        activeCountVisible = false
     }
 
     // MARK: - Video
@@ -360,9 +442,13 @@ final class RecordingViewModel: ObservableObject {
             live: LiveResult(reps: liveReps, rejectedReps: liveRejectedReps, classifier: liveClassifier),
             frames: frames,
             motion: takeMotion,
-            video: video?.info
+            video: video?.info,
+            countVisible: setup.countVisible
         )
         let videoURL = video?.url
+        let notice = Self.noticeText(
+            subject: setup.subject, kind: setup.kind, trueReps: storedReps, appReps: liveReps
+        )
 
         errorMessage = nil
         isSaving = true
@@ -382,6 +468,9 @@ final class RecordingViewModel: ObservableObject {
                     // The video file now lives in the recordings directory.
                     self.takeVideoURL = nil
                     self.takeVideoResult = nil
+                    self.savedNotice = SavedNotice(text: notice)
+                    self.resetLiveDisplay()
+                    RecorderPrefs.resetCheat()
                     self.publish(summaries)
                 case .failure(let error):
                     // The take stays pending so the user can retry.
@@ -399,6 +488,54 @@ final class RecordingViewModel: ObservableObject {
         ioQueue.async { [weak self] in
             let summaries = store.list()
             DispatchQueue.main.async { self?.publish(summaries) }
+        }
+    }
+
+    /// The sentence shown after a save. Only now may the app's count appear.
+    private static func noticeText(subject: String, kind: RecordedSession.Kind, trueReps: Int?, appReps: Int) -> String {
+        switch kind {
+        case .set:
+            return "Saved \(subject): you counted \(trueReps ?? 0), app counted \(appReps)"
+        case .negative:
+            return "Saved \(subject): negative take, app counted \(appReps)"
+        case .pose:
+            return "Saved \(subject): held pose"
+        }
+    }
+
+    /// The label fields an edit may change. Everything else in a take is
+    /// untouchable, see `RecordingStore.updateLabels`.
+    struct LabelEdit: Sendable {
+        var trueReps: Int?
+        var subject: String
+        var tags: RecordedSession.Tags
+        var notes: String
+        var poseLabel: PoseLabel?
+    }
+
+    /// Rewrites the labels of one saved take off the main queue. `completion`
+    /// gets nil on success or the reason it failed, on the main queue.
+    func updateLabels(of url: URL, _ edit: LabelEdit, completion: @escaping (String?) -> Void) {
+        let store = store
+        ioQueue.async { [weak self] in
+            let result = Result {
+                try store.updateLabels(of: url) { session in
+                    session.trueReps = edit.trueReps
+                    session.subject = edit.subject
+                    session.tags = edit.tags
+                    session.notes = edit.notes
+                    session.poseLabel = edit.poseLabel
+                }
+            }
+            let summaries = store.list()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.publish(summaries)
+                switch result {
+                case .success: completion(nil)
+                case .failure(let error): completion("Could not save the changes: \(error.localizedDescription)")
+                }
+            }
         }
     }
 
@@ -462,9 +599,17 @@ final class RecordingViewModel: ObservableObject {
         frames.append(RecordedFrame(raw: raw, originTimestamp: originTimestamp, originPresentationTime: originPresentationTime))
         recordedFrameCount = frames.count
 
+        let repsBefore = liveReps
         if let output = pipeline?.process(poseFrame) {
             liveReps = output.reps
             liveRejectedReps = output.rejectedReps
+            // Display only: depth for the ring and, if the take shows the
+            // count, the count and its sounds. Nothing here is recorded.
+            liveFeedback.process(output, repsBefore: repsBefore, timestamp: raw.timestamp)
+            let snapshot = liveFeedback.snapshot
+            if liveDepth != snapshot.depth { liveDepth = snapshot.depth }
+            if shownReps != snapshot.reps { shownReps = snapshot.reps }
+            if isShallowFlash != snapshot.isShallow { isShallowFlash = snapshot.isShallow }
         }
 
         let elapsed = raw.timestamp - originTimestamp

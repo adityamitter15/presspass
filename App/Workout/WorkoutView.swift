@@ -3,8 +3,8 @@ import SwiftUI
 import UIKit
 
 /// The workout, presented full screen over Home. Layers back to front: the
-/// camera (or a dark placeholder), a scrim top and bottom, the skeleton, then
-/// the HUD for the current phase. After a set it turns into the summary.
+/// camera (or a dark placeholder), a scrim, the skeleton, then the HUD. After
+/// a set it turns into the summary.
 struct WorkoutView: View {
     /// How the cover opens: a live workout, or (DEBUG screenshots) straight
     /// onto the summary of a finished one.
@@ -18,7 +18,6 @@ struct WorkoutView: View {
     @StateObject private var viewModel = WorkoutViewModel()
     @EnvironmentObject private var history: WorkoutHistoryStore
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var summary: WorkoutSessionRecord?
     @State private var didFinish = false
@@ -29,18 +28,6 @@ struct WorkoutView: View {
 
     init(launch: Launch = .live) {
         self.launch = launch
-    }
-
-    /// The part of the phase that decides which HUD shows, without the countdown value.
-    private enum HUDKind: Equatable { case positioning, active, finishing, finished }
-
-    private var hudKind: HUDKind {
-        switch viewModel.phase {
-        case .positioning: .positioning
-        case .active: .active
-        case .finishing: .finishing
-        case .finished: .finished
-        }
     }
 
     var body: some View {
@@ -55,7 +42,10 @@ struct WorkoutView: View {
                         onDone: { dismiss() }
                     )
                 } else {
-                    hud
+                    WorkoutHUD(
+                        viewModel: viewModel,
+                        showsDebugOverlay: showsDebugOverlay
+                    )
                 }
             }
             if let issue = viewModel.cameraIssue {
@@ -71,6 +61,14 @@ struct WorkoutView: View {
         .onDisappear { viewModel.stop() }
         .sensoryFeedback(.impact(flexibility: .soft), trigger: viewModel.reps)
         .sensoryFeedback(.warning, trigger: viewModel.shallowAttempts)
+    }
+
+    private var showsDebugOverlay: Bool {
+        #if DEBUG
+        debugOverlay
+        #else
+        false
+        #endif
     }
 
     // MARK: Lifecycle
@@ -112,112 +110,53 @@ struct WorkoutView: View {
         ZStack {
             CameraPreviewView(previewLayer: viewModel.previewLayer)
                 .ignoresSafeArea()
+            backdrop
             scrim
             SkeletonOverlayView(frame: viewModel.latestFrame)
                 .ignoresSafeArea()
-                .opacity(summary == nil ? 0.85 : 0.35)
+                .opacity(summary == nil ? 1 : 0.35)
         }
         .accessibilityHidden(true)
     }
 
-    /// Darkens the top, where the numeral sits, and the bottom, where the
-    /// controls sit, so the HUD reads over a bright camera image.
-    private var scrim: some View {
-        VStack(spacing: 0) {
-            LinearGradient(
-                stops: [
-                    .init(color: .black.opacity(0.72), location: 0),
-                    .init(color: .black.opacity(0.5), location: 0.45),
-                    .init(color: .black.opacity(0), location: 1),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(maxHeight: .infinity)
-            Spacer(minLength: 0).frame(maxHeight: .infinity)
-            LinearGradient(
-                stops: [
-                    .init(color: .black.opacity(0), location: 0),
-                    .init(color: .black.opacity(0.55), location: 0.55),
-                    .init(color: .black.opacity(0.78), location: 1),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(maxHeight: .infinity)
+    /// DEBUG QA aid: a still camera frame behind the skeleton in place of the
+    /// dark placeholder, from `-demoBackdrop`. It is shown aspect fill, the
+    /// same way the live camera preview is, so the skeleton lands on the
+    /// person in the image just as it would on a phone.
+    @ViewBuilder
+    private var backdrop: some View {
+        #if DEBUG
+        if viewModel.previewLayer == nil, let image = AppEnvironment.demoBackdropImage {
+            GeometryReader { geo in
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+            }
+            .ignoresSafeArea()
         }
+        #endif
+    }
+
+    /// One gradient over the whole screen. Light at the top so chips and
+    /// buttons read on a white wall, nothing over the person band (28 to 64
+    /// percent of the height), and a long ramp to ink at the bottom so the
+    /// ring reads on a pale floor.
+    private var scrim: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .black.opacity(0.5), location: 0),
+                .init(color: .black.opacity(0), location: WorkoutLayout.personTop),
+                .init(color: Theme.ink900.opacity(0), location: 0.58),
+                .init(color: Theme.ink900.opacity(0.8), location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
         .ignoresSafeArea()
         .allowsHitTesting(false)
     }
-
-    // MARK: HUD
-
-    private var hud: some View {
-        ZStack {
-            switch hudKind {
-            case .positioning:
-                PositioningCard(
-                    bodyInFrame: viewModel.isBodyDetected,
-                    handsOnFloor: viewModel.isPostureValid,
-                    progress: viewModel.holdProgress
-                )
-                .padding(.horizontal, Theme.Space.xl)
-                .transition(.popIn(reduceMotion: reduceMotion))
-            case .active:
-                ActiveHUD(viewModel: viewModel)
-                    .transition(.opacity)
-            case .finishing:
-                FinishingHUD(
-                    secondsRemaining: secondsRemaining,
-                    reps: viewModel.reps
-                )
-                .transition(.popIn(reduceMotion: reduceMotion, scale: 0.95))
-            case .finished:
-                EmptyView()
-            }
-
-            VStack {
-                #if DEBUG
-                if debugOverlay { debugHUD }
-                #endif
-                Spacer()
-                bottomButton
-            }
-            .padding(.bottom, Theme.Space.l)
-            .padding(.horizontal, Theme.Space.xl)
-        }
-        .motion(.smooth, value: hudKind)
-    }
-
-    private var secondsRemaining: Double {
-        if case .finishing(let seconds) = viewModel.phase { return seconds }
-        return 0
-    }
-
-    @ViewBuilder
-    private var bottomButton: some View {
-        switch hudKind {
-        case .positioning:
-            GlassButton("Cancel") { viewModel.requestFinish() }
-        case .active:
-            GlassButton("Finish") { viewModel.requestFinish() }
-        case .finishing:
-            GlassButton("Finish now") { viewModel.requestFinish() }
-        case .finished:
-            EmptyView()
-        }
-    }
-
-    #if DEBUG
-    private var debugHUD: some View {
-        Text(viewModel.debugStatus)
-            .font(.caption2.monospaced())
-            .foregroundStyle(.yellow)
-            .padding(Theme.Space.s)
-            .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    #endif
 }
 
 // MARK: - Demo summary (DEBUG)
@@ -255,188 +194,6 @@ extension WorkoutView {
     }
 }
 #endif
-
-// MARK: - Positioning
-
-/// "Get into position": a card with two checks that tick live and a ring
-/// that fills over the start hold.
-private struct PositioningCard: View {
-    let bodyInFrame: Bool
-    let handsOnFloor: Bool
-    let progress: Double
-
-    var body: some View {
-        VStack(spacing: Theme.Space.xl) {
-            ProgressRing(progress: progress, diameter: 104, lineWidth: 10) {
-                Image(systemName: "figure.strengthtraining.traditional")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                    .accessibilityHidden(true)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Hold position")
-            .accessibilityValue("\(Int((min(max(progress, 0), 1) * 100).rounded())) percent")
-
-            VStack(spacing: Theme.Space.xs) {
-                Text("Get into position")
-                    .font(Theme.title(.title2))
-                    .foregroundStyle(Theme.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Text("Phone on the floor, about a metre in front of you")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            VStack(alignment: .leading, spacing: Theme.Space.m) {
-                CheckRow(title: "Body in frame", isDone: bodyInFrame)
-                CheckRow(title: "Hands on the floor", isDone: handsOnFloor)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(Theme.Space.xl)
-        .frame(maxWidth: 340)
-        .glassSurface(in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-    }
-}
-
-private struct CheckRow: View {
-    let title: String
-    let isDone: Bool
-
-    var body: some View {
-        HStack(spacing: Theme.Space.m) {
-            Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(isDone ? Theme.volt : Theme.textTertiary)
-                .contentTransition(.symbolEffect(.replace))
-                .motion(.pop, value: isDone)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(.system(.body, design: .rounded, weight: .semibold))
-                .foregroundStyle(isDone ? Theme.textPrimary : Theme.textSecondary)
-        }
-        .frame(minHeight: 44)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityValue(isDone ? "Done" : "Not yet")
-    }
-}
-
-// MARK: - Active
-
-/// The count, wrapped in the depth ring, with the time and minutes quietly
-/// underneath, and the hint in the lower third.
-private struct ActiveHUD: View {
-    @ObservedObject var viewModel: WorkoutViewModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        GeometryReader { geo in
-            let diameter = min(300, geo.size.width - Theme.Space.xl * 2)
-            let scale = diameter / 300
-            ZStack {
-                VStack(spacing: Theme.Space.l) {
-                    DepthRing(
-                        depth: viewModel.depth,
-                        rippleTrigger: viewModel.reps,
-                        isShallow: viewModel.ringState == .shallow,
-                        diameter: diameter,
-                        lineWidth: 22 * scale
-                    ) {
-                        ZStack {
-                            RepNumeral(value: viewModel.reps, size: 190 * scale)
-                                .opacity(viewModel.showsGo ? 0 : 1)
-                            if viewModel.showsGo {
-                                Text("Go")
-                                    .font(Theme.heroNumeral(size: 130 * scale))
-                                    .foregroundStyle(Theme.volt)
-                                    .shadow(color: Theme.volt.opacity(0.5), radius: 18)
-                                    .transition(.popIn(reduceMotion: reduceMotion, scale: 0.7))
-                                    .accessibilityLabel("Go")
-                            }
-                        }
-                        .motion(.pop, value: viewModel.showsGo)
-                    }
-
-                    HStack(spacing: Theme.Space.m) {
-                        Text(Self.clock(viewModel.elapsedSeconds))
-                            .foregroundStyle(Theme.textSecondary)
-                            .accessibilityLabel("Time \(viewModel.elapsedSeconds) seconds")
-                        Text("+\(viewModel.minutesEarned) min")
-                            .foregroundStyle(Theme.volt)
-                            .contentTransition(.numericText(value: Double(viewModel.minutesEarned)))
-                            .motion(.pop, value: viewModel.minutesEarned)
-                    }
-                    .font(.system(.headline, design: .rounded, weight: .semibold).monospacedDigit())
-                    .padding(.horizontal, Theme.Space.l)
-                    .padding(.vertical, Theme.Space.s)
-                    .frame(minHeight: 44)
-                    .glassSurface(in: Capsule())
-                }
-                .position(x: geo.size.width / 2, y: geo.size.height * 0.33 + 20)
-
-                ZStack {
-                    if let hint = viewModel.hint {
-                        HintPill(systemImage: hint.systemImage, text: hint.text, tone: hint.tone)
-                            .id(hint)
-                            .transition(.popIn(reduceMotion: reduceMotion, scale: 0.92))
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, Theme.Space.xl)
-                .position(x: geo.size.width / 2, y: geo.size.height * 0.76)
-                .motion(.pop, value: viewModel.hint)
-            }
-        }
-    }
-
-    private static func clock(_ seconds: Int) -> String {
-        String(format: "%d:%02d", seconds / 60, seconds % 60)
-    }
-}
-
-// MARK: - Finishing
-
-/// The person has left the posture: a countdown to the automatic finish.
-private struct FinishingHUD: View {
-    let secondsRemaining: Double
-    let reps: Int
-
-    private var wholeSeconds: Int { max(Int(secondsRemaining.rounded(.up)), 0) }
-
-    var body: some View {
-        VStack(spacing: Theme.Space.xl) {
-            ProgressRing(
-                progress: secondsRemaining / WorkoutFlow.Config.default.finishingCountdown,
-                diameter: 220,
-                lineWidth: 16
-            ) {
-                Text("\(wholeSeconds)")
-                    .font(Theme.heroNumeral(size: 110))
-                    .foregroundStyle(Theme.textPrimary)
-                    .contentTransition(.numericText(countsDown: true))
-                    .motion(.pop, value: wholeSeconds)
-                    .shadow(color: .black.opacity(0.4), radius: 10)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Finishing in")
-            .accessibilityValue("\(wholeSeconds) seconds")
-
-            VStack(spacing: Theme.Space.xs) {
-                Text("Get back down to keep going")
-                    .font(Theme.title(.title3))
-                    .foregroundStyle(Theme.textPrimary)
-                    .multilineTextAlignment(.center)
-                Text("\(reps) \(reps == 1 ? "press-up" : "press-ups"), +\(reps) min")
-                    .font(.system(.subheadline, design: .rounded, weight: .medium))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .padding(.horizontal, Theme.Space.xl)
-        }
-        .offset(y: -40)
-    }
-}
 
 // MARK: - Camera trouble
 

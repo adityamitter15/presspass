@@ -6,6 +6,7 @@ import SwiftUI
 private struct GlassSurface<S: Shape>: ViewModifier {
     let shape: S
     var tint: Color?
+    var tintOpacity: Double
     var interactive: Bool
 
     @ViewBuilder
@@ -17,7 +18,7 @@ private struct GlassSurface<S: Shape>: ViewModifier {
                 .background {
                     ZStack {
                         shape.fill(.ultraThinMaterial)
-                        if let tint { shape.fill(tint.opacity(0.18)) }
+                        if let tint { shape.fill(tint.opacity(tintOpacity)) }
                     }
                 }
                 .overlay(shape.stroke(Theme.line, lineWidth: 1))
@@ -27,15 +28,22 @@ private struct GlassSurface<S: Shape>: ViewModifier {
     @available(iOS 26, *)
     private var glass: Glass {
         var glass = Glass.regular
-        if let tint { glass = glass.tint(tint.opacity(0.28)) }
+        if let tint { glass = glass.tint(tint.opacity(tintOpacity)) }
         if interactive { glass = glass.interactive() }
         return glass
     }
 }
 
 extension View {
-    func glassSurface<S: Shape>(in shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
-        modifier(GlassSurface(shape: shape, tint: tint, interactive: interactive))
+    /// - Parameter tintOpacity: how strongly `tint` colours the glass. Chips
+    ///   over a bright wall use a strong ink tint so white text stays readable.
+    func glassSurface<S: Shape>(
+        in shape: S,
+        tint: Color? = nil,
+        tintOpacity: Double = 0.28,
+        interactive: Bool = false
+    ) -> some View {
+        modifier(GlassSurface(shape: shape, tint: tint, tintOpacity: tintOpacity, interactive: interactive))
     }
 }
 
@@ -50,7 +58,7 @@ struct GlassButtonStyle: ButtonStyle {
             .foregroundStyle(Theme.textPrimary)
             .padding(.horizontal, Theme.Space.xl)
             .frame(minHeight: 48)
-            .glassSurface(in: Capsule(), tint: .white, interactive: true)
+            .glassSurface(in: Capsule(), tint: Theme.ink900, tintOpacity: 0.55, interactive: true)
             .contentShape(Capsule())
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(Motion.pop.animation(reduceMotion: reduceMotion), value: configuration.isPressed)
@@ -66,7 +74,7 @@ struct GlassIconButtonStyle: ButtonStyle {
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(Theme.textPrimary)
             .frame(width: 44, height: 44)
-            .glassSurface(in: Circle(), interactive: true)
+            .glassSurface(in: Circle(), tint: Theme.ink900, tintOpacity: 0.55, interactive: true)
             .contentShape(Circle())
             .scaleEffect(configuration.isPressed ? 0.92 : 1)
             .animation(Motion.pop.animation(reduceMotion: reduceMotion), value: configuration.isPressed)

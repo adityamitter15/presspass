@@ -15,11 +15,18 @@ struct HintPill: View {
             }
         }
 
-        fileprivate var tint: Color? {
+        fileprivate var tint: Color {
             switch self {
-            case .neutral: nil
+            case .neutral: Theme.ink900
             case .amber: Theme.amber
             case .coral: Theme.coral
+            }
+        }
+
+        fileprivate var tintOpacity: Double {
+            switch self {
+            case .neutral: 0.55
+            case .amber, .coral: 0.5
             }
         }
     }
@@ -42,7 +49,10 @@ struct HintPill: View {
         .padding(.horizontal, Theme.Space.l)
         .padding(.vertical, Theme.Space.m)
         .frame(minHeight: 44)
-        .glassSurface(in: Capsule(), tint: tone.tint)
+        // An ink underlay keeps white text readable over a bright wall, so
+        // the tone only has to carry the colour.
+        .background(Capsule().fill(Theme.ink900.opacity(tone == .neutral ? 0 : 0.5)))
+        .glassSurface(in: Capsule(), tint: tone.tint, tintOpacity: tone.tintOpacity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text)
     }

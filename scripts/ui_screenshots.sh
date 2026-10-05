@@ -10,8 +10,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 OUT="${1:-build/ui-shots}"
-DEVICE_NAME="iPhone 17 Pro"
-RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-26-5"
+# SIM_NAME and SIM_OS pick another simulator, for example SIM_NAME="iPhone 16 Pro"
+# SIM_OS=18.6 to check the non-Liquid-Glass look. DEMO_BACKDROP, an absolute
+# path to a still camera frame, is shown behind the skeleton in every workout shot.
+DEVICE_NAME="${SIM_NAME:-iPhone 17 Pro}"
+SIM_OS="${SIM_OS:-26.5}"
+RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-${SIM_OS//./-}"
+DEMO_BACKDROP="${DEMO_BACKDROP:-}"
 SCHEME="PushupTimeDev"
 BUNDLE_ID="com.addymitter.pushuptime.dev"
 DERIVED="build"
@@ -59,6 +64,15 @@ xcrun simctl uninstall "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun simctl install "$UDID" "$APP"
 xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100
 
+# wlaunch <args...>: launch for a workout shot, with the backdrop when one is set.
+wlaunch() {
+    if [[ -n "$DEMO_BACKDROP" ]]; then
+        launch "$@" -demoBackdrop "$DEMO_BACKDROP"
+    else
+        launch "$@"
+    fi
+}
+
 # launch <args...>: a fresh run of the app with those launch arguments, muted,
 # on the replayed demo session, with a known number of banked minutes.
 launch() {
@@ -82,29 +96,29 @@ shot home
 # The workout. The cover opens about 0.35 s after launch and the replay starts
 # with it, so the sleeps below count from the start of the replay plus about
 # 1.5 s of launch.
-launch -screen workout -debugState positioning
+wlaunch -screen workout -debugState positioning
 sleep 3
 shot workout_positioning
 
-launch -screen workout
+wlaunch -screen workout
 sleep 4.5
 shot workout_active_1
 sleep 5
 shot workout_active_2
 
-launch -screen workout -debugState shallow
+wlaunch -screen workout -debugState shallow
 sleep 3
 shot workout_shallow
 
-launch -screen workout -debugState finishing
+wlaunch -screen workout -debugState finishing
 sleep 3
 shot workout_finishing
 
-launch -screen workout -debugState nobody
+wlaunch -screen workout -debugState nobody
 sleep 3
 shot workout_nobody
 
-launch -screen summary
+wlaunch -screen summary
 sleep 3.5
 shot summary
 
@@ -117,7 +131,7 @@ xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/workout.mp4" >/dev/null 2>&1 &
 RECORDER_PID=$!
 sleep 2
-launch -screen workout
+wlaunch -screen workout
 sleep 20
 kill -INT "$RECORDER_PID"
 wait "$RECORDER_PID" || true

@@ -1,5 +1,6 @@
 import Foundation
 import PushupCore
+import UIKit
 import os.log
 
 /// How this launch was configured, resolved once from the launch arguments
@@ -37,6 +38,9 @@ struct AppEnvironment {
     /// No sound of any kind.
     let isMuted: Bool
     let debugState: DebugState?
+    /// Absolute path of a still image shown behind the skeleton in replay
+    /// mode, in place of the dark placeholder, for `-demoBackdrop`.
+    let demoBackdropPath: String?
 
     static let current = AppEnvironment(arguments: ProcessInfo.processInfo.arguments)
 
@@ -66,14 +70,23 @@ struct AppEnvironment {
         demoBalance = value(after: "-demoBalance").flatMap(Int.init)
         isMuted = value(after: "-mute") == "1"
         debugState = value(after: "-debugState").flatMap(DebugState.init(rawValue:))
+        demoBackdropPath = value(after: "-demoBackdrop")
         #else
         initialScreen = nil
         demoHistory = false
         demoBalance = nil
         isMuted = false
         debugState = nil
+        demoBackdropPath = nil
         #endif
     }
+
+    /// The `-demoBackdrop` image, loaded once; nil when none was given or it
+    /// cannot be read.
+    static let demoBackdropImage: UIImage? = {
+        guard let path = current.demoBackdropPath else { return nil }
+        return UIImage(contentsOfFile: path)
+    }()
 
     /// The bundled demo recording: one clean set of 4 reps.
     func loadDemoSession() -> RecordedSession? {

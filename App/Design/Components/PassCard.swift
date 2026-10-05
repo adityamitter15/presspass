@@ -230,16 +230,18 @@ private extension UInt64 {
 
 // MARK: - Formatting
 
+/// One format for the day and time on both pass variants: upper case, so
+/// "TODAY" and "1:14 AM" read the same in a list and on the summary.
 enum PassFormat {
     static func day(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
-        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+        if calendar.isDate(date, inSameDayAs: now) { return "TODAY" }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
-           calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
-        return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+           calendar.isDate(date, inSameDayAs: yesterday) { return "YESTERDAY" }
+        return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)).uppercased()
     }
 
     static func time(_ date: Date) -> String {
-        date.formatted(date: .omitted, time: .shortened)
+        date.formatted(date: .omitted, time: .shortened).uppercased()
     }
 
     /// m:ss

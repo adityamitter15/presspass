@@ -15,17 +15,25 @@ struct DepthRing<Content: View>: View {
     let isShallow: Bool
     var diameter: CGFloat = 300
     var lineWidth: CGFloat = 22
+    /// The ripple stops growing at this diameter, so it never leaves the screen.
+    var maxRippleDiameter: CGFloat?
+    var accessibilityLabel: String = "Depth"
     @ViewBuilder var content: () -> Content
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var clamped: Double { min(max(depth, 0), 1) }
     private var isFull: Bool { clamped >= 0.97 }
+    /// A gentle ripple: at most 14 percent bigger, and never wider than the cap.
+    private var rippleScale: Double {
+        let limit = (maxRippleDiameter ?? .infinity) / diameter
+        return min(1.14, max(1.0, Double(limit)))
+    }
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Theme.ink700.opacity(0.6), lineWidth: lineWidth)
+                .stroke(Theme.ink600.opacity(0.85), lineWidth: lineWidth)
                 .accessibilityHidden(true)
 
             progress(colors: [Theme.voltDeep, Theme.volt])
@@ -45,10 +53,10 @@ struct DepthRing<Content: View>: View {
                 } keyframes: { _ in
                     KeyframeTrack(\.scale) {
                         CubicKeyframe(1.0, duration: 0.001)
-                        CubicKeyframe(1.32, duration: 0.7)
+                        CubicKeyframe(rippleScale, duration: 0.7)
                     }
                     KeyframeTrack(\.opacity) {
-                        LinearKeyframe(0.85, duration: 0.001)
+                        LinearKeyframe(0.6, duration: 0.001)
                         CubicKeyframe(0, duration: 0.7)
                     }
                 }
@@ -68,7 +76,7 @@ struct DepthRing<Content: View>: View {
 
             Color.clear
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Depth")
+                .accessibilityLabel(accessibilityLabel)
                 .accessibilityValue("\(Int((clamped * 100).rounded())) percent")
                 .accessibilityAddTraits(.updatesFrequently)
         }

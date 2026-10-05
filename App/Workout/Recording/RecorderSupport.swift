@@ -70,6 +70,7 @@ extension RecordedSession.Kind {
         case .set: "Set"
         case .negative: "Negative"
         case .pose: "Held pose"
+        case .workout: "Workout"
         }
     }
 }
@@ -265,7 +266,7 @@ enum RecorderCopy {
         switch kind {
         case .set: cheat != .none
         case .negative: true
-        case .pose: false
+        case .pose, .workout: false
         }
     }
 
@@ -285,6 +286,8 @@ enum RecorderCopy {
             return "Start: \(who), NEGATIVE take (nothing should count)"
         case .pose:
             return "Start: \(who), held pose, \(poseLabel.title.lowercased())"
+        case .workout:
+            return "Start: \(who), app workout"
         }
     }
 
@@ -301,6 +304,7 @@ enum RecorderCopy {
             return "\(setup.subject), \(setup.tags.cheat.loudName) take"
         case .negative: return "\(setup.subject), NEGATIVE take"
         case .pose: return "\(setup.subject), held pose, \(setup.poseLabel.title.lowercased())"
+        case .workout: return "\(setup.subject), app workout"
         }
     }
 

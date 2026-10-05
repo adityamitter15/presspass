@@ -14,6 +14,8 @@ enum WorkoutHint: Equatable {
     case handsPosition
     /// The last descent was not low enough to count.
     case shallow
+    /// Not at the top yet: the arms are not straight.
+    case holdTheTop
 
     var text: String {
         switch self {
@@ -21,6 +23,7 @@ enum WorkoutHint: Equatable {
         case .armsHidden: "I can't see your arms"
         case .handsPosition: "Hands on the floor, under your shoulders"
         case .shallow: "Go lower"
+        case .holdTheTop: "Arms straight, hold the top position"
         }
     }
 
@@ -30,19 +33,33 @@ enum WorkoutHint: Equatable {
         case .armsHidden: "eye.slash.fill"
         case .handsPosition: "hand.raised.fill"
         case .shallow: "arrow.down.to.line"
+        case .holdTheTop: "arrow.up.to.line"
         }
     }
 
     var tone: HintPill.Tone {
         switch self {
         case .noBody, .armsHidden: .coral
-        case .handsPosition: .neutral
+        case .handsPosition, .holdTheTop: .neutral
         case .shallow: .amber
         }
     }
 }
 
-extension WorkoutFlow.Phase {
+extension WorkoutHint {
+    /// What the engine's hint looks like on screen.
+    init(_ hint: WorkoutSessionEngine.Hint) {
+        switch hint {
+        case .stepBack: self = .noBody
+        case .cannotSeeArms: self = .armsHidden
+        case .handsOnFloor: self = .handsPosition
+        case .holdTheTop: self = .holdTheTop
+        case .goLower: self = .shallow
+        }
+    }
+}
+
+extension WorkoutSessionEngine.Phase {
     /// The set is under way: counting, or counting down to finish.
     var isCounting: Bool {
         switch self {
@@ -67,10 +84,10 @@ enum CameraIssue: Equatable {
     case interrupted(String)
 }
 
-/// Coordinates the pose source (camera, or a replay in the Simulator), the
-/// pipeline, the hands-free `WorkoutFlow` and the display-only `DepthTracker`
-/// for one workout, and publishes what `WorkoutView` renders. Everything
-/// downstream of the `PoseSource` runs synchronously on the delivery queue's
+/// Drives one workout for `WorkoutView`: it feeds the pose source's frames to
+/// a `WorkoutSessionEngine`, which owns all the workout logic (when counting
+/// starts, what is counted, hints, when the set ends), and publishes what the
+/// engine reports. Everything here runs synchronously on the delivery queue's
 /// callback, cheap enough per frame, and keeping it on the main queue means
 /// the `@Published` updates below don't need an extra hop. All timing uses
 /// frame timestamps, so there are no timers to keep in step.
@@ -79,11 +96,11 @@ final class WorkoutViewModel: ObservableObject {
 
     @Published private(set) var latestFrame: PoseFrame?
     @Published private(set) var isBodyDetected: Bool = false
-    /// The hands are on the floor under the shoulders.
+    /// The frame passes every posture check: hands on the floor, planted, body horizontal.
     @Published private(set) var isPostureValid: Bool = false
-    /// 0 to 1 over the flow's start hold, while positioning.
+    /// 0 to 1 over the engine's start hold, while positioning.
     @Published private(set) var holdProgress: Double = 0
-    @Published private(set) var phase: WorkoutFlow.Phase = .positioning
+    @Published private(set) var phase: WorkoutSessionEngine.Phase = .positioning
     /// Smoothed depth, 0 (arms straight) to 1 (low enough to count).
     @Published private(set) var depth: Double = 0
     @Published private(set) var ringState: RingState = .tracking
@@ -107,52 +124,64 @@ final class WorkoutViewModel: ObservableObject {
     @Published private(set) var cameraIssue: CameraIssue?
 
     #if DEBUG
-    /// Live pipeline internals for the on-screen debug HUD.
+    /// Live engine internals for the on-screen debug HUD.
     @Published private(set) var debugStatus: String = ""
     #endif
 
     /// One minute earned per counted rep.
     var minutesEarned: Int { reps }
 
+    /// Length of the finishing countdown, for the ring.
+    var finishingCountdown: Double { engine.config.finishingCountdown }
+
     // MARK: Collaborators
 
     private let poseSource: PoseSource
-    private let pipeline: PushupPipeline
-    private var flow = WorkoutFlow()
-    private var depthTracker = DepthTracker()
+    private var engine: WorkoutSessionEngine
+    private let makeEngine: () -> WorkoutSessionEngine
     private var audio: WorkoutAudio?
+    #if DEBUG
+    private let flightRecorder = WorkoutFlightRecorder()
+    private var recordsFlight = false
+    #endif
 
-    // MARK: Per-set bookkeeping
+    // MARK: Display bookkeeping
 
-    private static let hintHold: TimeInterval = 0.6
-    private static let shallowHintSeconds: TimeInterval = 1.2
-    private static let shallowRingSeconds: TimeInterval = 1.0
+    /// How long the "Go" flash stays, a presentation detail.
     private static let goSeconds: TimeInterval = 0.9
-    private static let startHold = WorkoutFlow.Config.default.startHold
 
-    private var activeStart: TimeInterval?
     private var startedAt: Date?
-    private var repTimes: [Double] = []
-    private var lastValidTimestamp: TimeInterval = 0
-    private var holdStart: TimeInterval?
-    private var hintCandidate: WorkoutHint?
-    private var hintSince: TimeInterval = 0
-    private var shallowHintUntil: TimeInterval = 0
-    private var shallowRingUntil: TimeInterval = 0
     private var goUntil: TimeInterval = 0
     private var hasFinished = false
+    private var finishCuePlayed = false
     private var pinnedState: AppEnvironment.DebugState?
     private var wantsDebugStatus = false
 
+    /// The engine as the app runs it: the default session config with the
+    /// "Finish automatically" setting, and the bundled Core ML classifier if
+    /// there is one (otherwise the engine builds the heuristic itself).
+    static func makeDefaultEngine() -> WorkoutSessionEngine {
+        var config = SessionConfig.default
+        config.autoFinish = AppSettings.autoFinish
+        return WorkoutSessionEngine(config: config, classifier: CoreMLPoseClassifier.loadFromBundle())
+    }
+
     init(
         poseSource: PoseSource = AppEnvironment.current.makePoseSource(),
-        pipeline: PushupPipeline = PushupPipeline(classifier: PoseClassifierFactory.makeDefault())
+        makeEngine: @escaping () -> WorkoutSessionEngine = WorkoutViewModel.makeDefaultEngine
     ) {
         self.poseSource = poseSource
-        self.pipeline = pipeline
+        self.makeEngine = makeEngine
+        self.engine = makeEngine()
         self.poseSource.onFrame = { [weak self] frame in
             self?.handle(frame: frame)
         }
+        #if DEBUG
+        self.poseSource.onRawFrame = { [weak self] raw in
+            guard let self, self.recordsFlight else { return }
+            self.flightRecorder.append(raw)
+        }
+        #endif
         self.poseSource.onInterruption = { [weak self] message in
             guard let self else { return }
             if let message {
@@ -174,25 +203,15 @@ final class WorkoutViewModel: ObservableObject {
 
     func start() {
         cameraIssue = nil
-        pipeline.reset()
-        depthTracker.reset()
-        flow = WorkoutFlow(config: WorkoutFlow.Config(
-            idleBeforeFinishing: AppSettings.autoFinish ? WorkoutFlow.Config.default.idleBeforeFinishing : .infinity
-        ))
+        // A fresh engine per workout, so the settings are read again.
+        engine = makeEngine()
         audio = WorkoutAudio(mode: AppSettings.soundMode)
         audio?.begin()
 
-        activeStart = nil
         startedAt = nil
-        repTimes = []
-        lastValidTimestamp = 0
-        holdStart = nil
-        hintCandidate = nil
-        hintSince = 0
-        shallowHintUntil = 0
-        shallowRingUntil = 0
         goUntil = 0
         hasFinished = false
+        finishCuePlayed = false
 
         reps = 0
         rejectedReps = 0
@@ -212,6 +231,10 @@ final class WorkoutViewModel: ObservableObject {
         wantsDebugStatus = UserDefaults.standard.bool(forKey: AppSettings.Key.debugOverlay)
         pinnedState = AppEnvironment.current.debugState
         if let pinnedState { applyPinned(pinnedState) }
+        // Every workout started from the Start button is logged; a pinned
+        // screenshot state is not a workout.
+        recordsFlight = pinnedState == nil
+        if recordsFlight { flightRecorder.begin() }
         #endif
         isRunning = true
 
@@ -239,8 +262,8 @@ final class WorkoutViewModel: ObservableObject {
     /// Ends the set from the Finish button. The view sees `phase == .finished`.
     func requestFinish() {
         guard !hasFinished else { return }
-        flow.finishNow()
-        phase = flow.phase
+        engine.finishNow()
+        phase = engine.phase
     }
 
     /// Stops the source and returns the record of the set, or nil when no rep
@@ -248,31 +271,44 @@ final class WorkoutViewModel: ObservableObject {
     func finish() -> WorkoutSessionRecord? {
         guard !hasFinished else { return nil }
         hasFinished = true
-        flow.finishNow()
+        engine.finishNow()
         phase = .finished
         let record = makeRecord()
-        if record != nil { audio?.finish() }
+        // The engine reports `.finished` on its next frame. The set may well
+        // be over before that frame arrives, so make sure the cue plays once.
+        if record != nil { playFinishCue() }
         stopRunning()
         return record
     }
 
     private func stopRunning() {
+        #if DEBUG
+        flushFlightLog()
+        #endif
         poseSource.stop()
         audio?.end()
         isRunning = false
     }
 
+    private func playFinishCue() {
+        guard !finishCuePlayed, reps > 0 else { return }
+        finishCuePlayed = true
+        audio?.finish()
+    }
+
     private func makeRecord() -> WorkoutSessionRecord? {
-        guard reps > 0 else { return nil }
+        guard engine.reps > 0 else { return nil }
+        let start = engine.activeStartTimestamp ?? 0
+        let repTimes = engine.repTimes.map { max(0, $0 - start) }
         let lastRep = repTimes.last ?? 0
-        let lastInPosition = activeStart.map { max(0, lastValidTimestamp - $0) } ?? 0
+        let lastInPosition = engine.lastValidTimestamp.map { max(0, $0 - start) } ?? 0
         return WorkoutSessionRecord(
             startedAt: startedAt ?? Date(),
             durationSeconds: max(lastRep, lastInPosition),
-            reps: reps,
+            reps: engine.reps,
             repTimes: repTimes,
-            shallowAttempts: shallowAttempts,
-            minutesEarned: minutesEarned
+            shallowAttempts: engine.shallowAttempts,
+            minutesEarned: engine.reps
         )
     }
 
@@ -288,138 +324,67 @@ final class WorkoutViewModel: ObservableObject {
         }
         latestFrame = frame
         let timestamp = frame.timestamp
+        let output = engine.process(frame)
 
-        let repsBefore = reps
-        let output = pipeline.process(frame)
-        let inPosture = output.postureValid && output.requiredJointsConfident
+        for event in output.events {
+            switch event {
+            case .started:
+                startedAt = Date()
+                goUntil = timestamp + Self.goSeconds
+                showsGo = true
+                elapsedSeconds = 0
+                audio?.go()
+            case .repCounted(let total):
+                audio?.rep(total)
+            case .shallowAttempt:
+                audio?.shallowAttempt()
+            case .finished:
+                playFinishCue()
+            case .finishingBegan, .resumed:
+                break
+            }
+        }
+
         let bodyDetected = !frame.joints.isEmpty
-
-        let phaseBefore = flow.phase
-        flow.update(postureValid: inPosture, reps: output.reps, timestamp: timestamp)
-        let phaseAfter = flow.phase
-
-        if phaseBefore == .positioning, phaseAfter == .active {
-            beginSet(at: timestamp)
-        } else if phaseBefore == .active, phaseAfter == .positioning {
-            activeStart = nil
-            startedAt = nil
-            if elapsedSeconds != 0 { elapsedSeconds = 0 }
-        }
-        if phaseAfter != phase { phase = phaseAfter }
-
         if isBodyDetected != bodyDetected { isBodyDetected = bodyDetected }
-        if isPostureValid != output.postureValid { isPostureValid = output.postureValid }
+        let postureValid = output.gateFailure == nil
+        if isPostureValid != postureValid { isPostureValid = postureValid }
+        if output.phase != phase { phase = output.phase }
 
-        updateHold(inPosture: inPosture, phase: phaseAfter, timestamp: timestamp)
-
-        if output.reps != reps {
-            reps = output.reps
+        let progress = output.holdProgress
+        if abs(progress - holdProgress) > 0.01 || (progress == 0 && holdProgress != 0) {
+            holdProgress = progress
         }
+
+        if output.reps != reps { reps = output.reps }
         if output.rejectedReps != rejectedReps { rejectedReps = output.rejectedReps }
-        if output.reps > repsBefore { repCounted(total: output.reps, at: timestamp) }
-
-        if output.features != nil {
-            if currentLabel != output.currentLabel { currentLabel = output.currentLabel }
-            if ignoreReason != output.ignoreReason { ignoreReason = output.ignoreReason }
+        if output.shallowAttempts != shallowAttempts { shallowAttempts = output.shallowAttempts }
+        if let pipeline = output.pipeline {
+            if currentLabel != pipeline.currentLabel { currentLabel = pipeline.currentLabel }
+            if ignoreReason != pipeline.ignoreReason { ignoreReason = pipeline.ignoreReason }
         }
 
-        let isSetRunning = phaseAfter.isCounting
-        if isSetRunning, inPosture { lastValidTimestamp = timestamp }
-
-        let event = depthTracker.update(with: output, repsBefore: repsBefore)
-        let newDepth = Double(depthTracker.depth)
+        let newDepth = Double(output.depth)
         if abs(newDepth - depth) > 0.002 { depth = newDepth }
-        if isSetRunning, case .shallowAttempt = event {
-            shallowAttempts += 1
-            shallowHintUntil = timestamp + Self.shallowHintSeconds
-            shallowRingUntil = timestamp + Self.shallowRingSeconds
-            audio?.shallowAttempt()
-        }
-
-        let ringNow: RingState = timestamp < shallowRingUntil ? .shallow : .tracking
+        let ringNow: RingState = output.hint == .goLower ? .shallow : .tracking
         if ringState != ringNow { ringState = ringNow }
 
-        updateHint(
-            bodyDetected: bodyDetected,
-            requiredJointsConfident: output.requiredJointsConfident,
-            postureValid: output.postureValid,
-            phase: phaseAfter,
-            timestamp: timestamp
-        )
+        let shown = output.hint.map(WorkoutHint.init)
+        if hint != shown { hint = shown }
 
-        if let activeStart {
-            let seconds = Int(max(0, timestamp - activeStart))
+        if let start = engine.activeStartTimestamp, phase.isCounting {
+            let seconds = Int(max(0, timestamp - start))
             if seconds != elapsedSeconds { elapsedSeconds = seconds }
+        } else if engine.activeStartTimestamp == nil, elapsedSeconds != 0 {
+            // The set was dropped back to positioning.
+            elapsedSeconds = 0
+            startedAt = nil
         }
         if showsGo, timestamp >= goUntil { showsGo = false }
 
         #if DEBUG
         if wantsDebugStatus { updateDebugStatus(frame: frame, output: output) }
         #endif
-    }
-
-    private func beginSet(at timestamp: TimeInterval) {
-        activeStart = timestamp
-        startedAt = Date()
-        repTimes = []
-        lastValidTimestamp = timestamp
-        goUntil = timestamp + Self.goSeconds
-        showsGo = true
-        elapsedSeconds = 0
-        holdProgress = 0
-        audio?.go()
-    }
-
-    private func repCounted(total: Int, at timestamp: TimeInterval) {
-        repTimes.append(max(0, timestamp - (activeStart ?? timestamp)))
-        audio?.rep(total)
-    }
-
-    /// Mirrors the flow's start hold so the positioning ring can fill with it.
-    private func updateHold(inPosture: Bool, phase: WorkoutFlow.Phase, timestamp: TimeInterval) {
-        var progress = 0.0
-        if phase == .positioning, inPosture {
-            let since = holdStart ?? timestamp
-            holdStart = since
-            progress = min((timestamp - since) / Self.startHold, 1)
-        } else {
-            holdStart = nil
-        }
-        if abs(progress - holdProgress) > 0.01 || (progress == 0 && holdProgress != 0) {
-            holdProgress = progress
-        }
-    }
-
-    /// A hint shows only once its condition has held for `hintHold` seconds.
-    private func updateHint(
-        bodyDetected: Bool,
-        requiredJointsConfident: Bool,
-        postureValid: Bool,
-        phase: WorkoutFlow.Phase,
-        timestamp: TimeInterval
-    ) {
-        var candidate: WorkoutHint?
-        if !bodyDetected {
-            candidate = .noBody
-        } else if !requiredJointsConfident {
-            candidate = .armsHidden
-        } else if !postureValid {
-            candidate = .handsPosition
-        }
-        if candidate != hintCandidate {
-            hintCandidate = candidate
-            hintSince = timestamp
-        }
-
-        var shown: WorkoutHint?
-        if phase == .active {
-            if timestamp < shallowHintUntil {
-                shown = .shallow
-            } else if let candidate, timestamp - hintSince >= Self.hintHold {
-                shown = candidate
-            }
-        }
-        if hint != shown { hint = shown }
     }
 
     // MARK: Pinned states (screenshots)
@@ -458,21 +423,64 @@ final class WorkoutViewModel: ObservableObject {
         }
     }
 
-    private func updateDebugStatus(frame: PoseFrame, output: PipelineOutput) {
+    private func updateDebugStatus(frame: PoseFrame, output: WorkoutSessionEngine.Output) {
         let confident = frame.joints.values.filter { $0.confidence >= 0.3 }.count
         var parts = ["joints \(frame.joints.count) (\(confident) conf)"]
-        if let features = output.features {
-            let leftElbow = features[PushupFeatureExtractor.leftElbowAngleIndex] * 180 / .pi
-            let rightElbow = features[PushupFeatureExtractor.rightElbowAngleIndex] * 180 / .pi
-            parts.append(String(format: "elbow L%.0f R%.0f", leftElbow, rightElbow))
-            parts.append("posture \(PostureGate.isPushupPosture(frame.joints) ? "ok" : "BAD")")
-            parts.append("label \(output.frameLabel?.rawValue ?? "-")")
-        } else {
-            parts.append("features: nil (conf gate)")
-        }
-        parts.append(String(format: "depth %.2f", depthTracker.depth))
+        func number(_ value: Float?) -> String { value.map { String(format: "%.2f", $0) } ?? "-" }
+        parts.append("gate \(output.gateFailure?.rawValue ?? "ok")")
+        parts.append("torso \(number(output.torsoRatio))")
+        parts.append("wrist \(number(output.wristMotionRatio))")
+        parts.append("raw \(number(output.rawDepth))")
+        parts.append(String(format: "depth %.2f", output.depth))
         parts.append("rejected \(output.rejectedReps)")
         debugStatus = parts.joined(separator: " | ")
+    }
+
+    // MARK: Flight recorder
+
+    /// Writes what the workout buffered, once, as the workout ends.
+    private func flushFlightLog() {
+        guard recordsFlight else { return }
+        recordsFlight = false
+        let live = LiveResult(
+            reps: engine.reps,
+            rejectedReps: engine.rejectedReps,
+            classifier: CoreMLPoseClassifier.loadFromBundle() == nil ? "heuristic" : "coreml"
+        )
+        flightRecorder.flush(live: live, config: engine.config, device: Self.deviceInfo())
+    }
+
+    private static func deviceInfo() -> DeviceInfo {
+        let info = Bundle.main.infoDictionary
+        return DeviceInfo(
+            model: hardwareIdentifier(),
+            systemVersion: UIDevice.current.systemVersion,
+            appVersion: info?["CFBundleShortVersionString"] as? String ?? "unknown",
+            appBuild: info?["CFBundleVersion"] as? String ?? "unknown",
+            poseModel: "pose_landmarker_full",
+            cameraPosition: "front",
+            featureVersion: PushupFeatureExtractor.featureVersion
+        )
+    }
+
+    /// The `uname` machine string, for example "iPhone17,2". In the
+    /// simulator that is the host architecture, so the simulated model is
+    /// used instead when it is available.
+    private static func hardwareIdentifier() -> String {
+        #if targetEnvironment(simulator)
+        if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] {
+            return simulated
+        }
+        #endif
+        var system = utsname()
+        uname(&system)
+        var machine = system.machine
+        let capacity = MemoryLayout.size(ofValue: machine)
+        return withUnsafePointer(to: &machine) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: capacity) {
+                String(cString: $0)
+            }
+        }
     }
     #endif
 }

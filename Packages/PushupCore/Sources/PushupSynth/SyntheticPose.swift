@@ -35,7 +35,45 @@ public enum SyntheticPose {
         /// after scale, before translation).
         public var mirrored = false
 
+        /// Image width divided by image height, used to hit `torsoRatio`.
+        public var imageAspect: CGFloat = 9.0 / 16.0
+        /// nil keeps the original front-view geometry (a tall torso, wrists
+        /// that follow the elbow bend). A value switches to the planar
+        /// geometry: the torso length divided by the shoulder width, measured
+        /// in isotropic image coordinates. About 0.4 is a body foreshortened
+        /// head-on from the floor, about 1.4 a standing body.
+        public var torsoRatio: CGFloat?
+        /// Planar geometry only. 1 plants the wrists in the image and lets the
+        /// shoulders move as the elbows bend (a real press-up filmed from the
+        /// floor), 0 hangs the wrists below fixed shoulders (a standing body).
+        /// Values between blend the two.
+        public var plant: CGFloat = 1
+        /// Planar geometry only. Swings both arms rigidly about the shoulders
+        /// by this many degrees (left one way, right the other), which keeps
+        /// the elbow angle and moves the wrists.
+        public var armSwingDegrees: Double = 0
+        /// Added to the wrist positions after everything else, in base units.
+        public var leftWristOffset = CGPoint.zero
+        public var rightWristOffset = CGPoint.zero
+
         public init() {}
+
+        /// A body in press-up position seen head-on from the floor: planted
+        /// wrists, hips projected close to the shoulders.
+        public static func foreshortened(torsoRatio: CGFloat = 0.4) -> Options {
+            var options = Options()
+            options.torsoRatio = torsoRatio
+            options.plant = 1
+            return options
+        }
+
+        /// A standing body: wrists hanging below fixed shoulders, a tall torso.
+        public static func upright(torsoRatio: CGFloat = 1.4) -> Options {
+            var options = Options()
+            options.torsoRatio = torsoRatio
+            options.plant = 0
+            return options
+        }
     }
 
     public static func joints(elbowDegrees: Double, _ options: Options = Options()) -> [JointName: JointPoint] {
@@ -91,6 +129,69 @@ public enum SyntheticPose {
                 degrees = topDegrees - (topDegrees - bottomDegrees) * depth
             }
             return frame(timestamp: startTime + t, elbowDegrees: degrees, options)
+        }
+    }
+
+    // MARK: - Sequences with a body style
+
+    /// A person waving their arms standing up: an upright body (tall torso),
+    /// the wrists hanging below the shoulders and swinging by
+    /// `swingDegrees`, and the elbows bending fully once per
+    /// `secondsPerCycle`. Passes the old posture gate, fails the new ones.
+    public static func armWaveSequence(
+        seconds: Double,
+        secondsPerCycle: Double = 2,
+        swingSeconds: Double = 1,
+        swingDegrees: Double = 70,
+        fps: Double = 30,
+        topDegrees: Double = 165,
+        bottomDegrees: Double = 80,
+        startTime: TimeInterval = 0,
+        _ base: Options = .upright()
+    ) -> [PoseFrame] {
+        let count = Int((seconds * fps).rounded())
+        return (0..<count).map { i in
+            let t = Double(i) / fps
+            let bend = (1 - cos(2 * .pi * t / secondsPerCycle)) / 2
+            var options = base
+            options.armSwingDegrees = swingDegrees * sin(2 * .pi * t / swingSeconds)
+            return frame(
+                timestamp: startTime + t,
+                elbowDegrees: topDegrees - (topDegrees - bottomDegrees) * bend,
+                options
+            )
+        }
+    }
+
+    /// A person going from standing to the top position: over `seconds` the
+    /// torso ratio goes from `from` to `to` and the wrists go from hanging to
+    /// planted, while the elbows bend to `bendDegrees` and straighten again.
+    /// The bend happens in the first `bendFraction` of the movement and the
+    /// last stretch is spent settling at the top with straight arms.
+    public static func approachSequence(
+        seconds: Double = 2.5,
+        fps: Double = 30,
+        from standingRatio: CGFloat = 1.4,
+        to pressupRatio: CGFloat = 0.4,
+        topDegrees: Double = 165,
+        bendDegrees: Double = 85,
+        bendFraction: Double = 0.55,
+        startTime: TimeInterval = 0
+    ) -> [PoseFrame] {
+        let count = Int((seconds * fps).rounded())
+        return (0..<count).map { i in
+            let s = Double(i) / Double(max(count - 1, 1))
+            let smooth = s * s * (3 - 2 * s)
+            let bendPhase = min(s / bendFraction, 1)
+            let bend = sin(.pi * bendPhase)
+            var options = Options()
+            options.torsoRatio = standingRatio + (pressupRatio - standingRatio) * CGFloat(smooth)
+            options.plant = CGFloat(smooth)
+            return frame(
+                timestamp: startTime + Double(i) / fps,
+                elbowDegrees: topDegrees - (topDegrees - bendDegrees) * bend,
+                options
+            )
         }
     }
 
@@ -164,6 +265,9 @@ public enum SyntheticPose {
     // MARK: - Geometry
 
     private static func basePoints(elbowDegrees: Double, options: Options) -> [JointName: CGPoint] {
+        if let ratio = options.torsoRatio {
+            return planarPoints(elbowDegrees: elbowDegrees, torsoRatio: ratio, options: options)
+        }
         let sy = hipCenter.y + torsoLength
         let sx = hipCenter.x + options.lean
         let leftShoulder = CGPoint(x: sx - shoulderHalfWidth, y: sy)
@@ -191,6 +295,78 @@ public enum SyntheticPose {
             .leftAnkle: CGPoint(x: leftHip.x, y: hipCenter.y - 0.31),
             .rightAnkle: CGPoint(x: rightHip.x, y: hipCenter.y - 0.31),
         ]
+    }
+
+    /// Wrist height when the hands are planted, in base units.
+    static let plantedWristY: CGFloat = 0.36
+
+    /// Geometry with a chosen torso ratio. The shoulders sit `d` above the
+    /// wrists (the law-of-cosines distance for the elbow angle), the wrists
+    /// are planted or hanging according to `options.plant`, and the hips sit
+    /// below the shoulders at the torso length the ratio asks for.
+    private static func planarPoints(elbowDegrees: Double, torsoRatio: CGFloat, options: Options) -> [JointName: CGPoint] {
+        let u = Double(upperArmLength), f = Double(forearmLength)
+        let theta = elbowDegrees * .pi / 180
+        let d = CGFloat((u * u + f * f - 2 * u * f * cos(theta)).squareRoot())
+
+        let plant = min(max(options.plant, 0), 1)
+        let hangingShoulderY = hipCenter.y + torsoLength
+        let wristY = (hangingShoulderY - d) * (1 - plant) + plantedWristY * plant
+        let sy = wristY + d
+        let sx = hipCenter.x + options.lean
+
+        // Torso length in the image's vertical units, so that the isotropic
+        // ratio comes out as asked once the lean is accounted for.
+        let aspect = options.imageAspect
+        let shoulderWidthIso = 2 * shoulderHalfWidth * aspect
+        let targetIso = torsoRatio * shoulderWidthIso
+        let leanIso = options.lean * aspect
+        let dy = max(targetIso * targetIso - leanIso * leanIso, 1e-6).squareRoot()
+        let hipY = sy - dy
+
+        let leftShoulder = CGPoint(x: sx - shoulderHalfWidth, y: sy)
+        let rightShoulder = CGPoint(x: sx + shoulderHalfWidth, y: sy)
+        let leftHip = CGPoint(x: hipCenter.x - hipHalfWidth, y: hipY)
+        let rightHip = CGPoint(x: hipCenter.x + hipHalfWidth, y: hipY)
+
+        var (leftElbow, leftWrist) = arm(from: leftShoulder, outward: -1, elbowDegrees: elbowDegrees, up: false)
+        var (rightElbow, rightWrist) = arm(from: rightShoulder, outward: 1, elbowDegrees: elbowDegrees, up: false)
+
+        if options.armSwingDegrees != 0 {
+            let angle = CGFloat(options.armSwingDegrees * .pi / 180)
+            leftElbow = rotate(leftElbow, about: leftShoulder, by: angle)
+            leftWrist = rotate(leftWrist, about: leftShoulder, by: angle)
+            rightElbow = rotate(rightElbow, about: rightShoulder, by: -angle)
+            rightWrist = rotate(rightWrist, about: rightShoulder, by: -angle)
+        }
+        leftWrist = CGPoint(x: leftWrist.x + options.leftWristOffset.x, y: leftWrist.y + options.leftWristOffset.y)
+        rightWrist = CGPoint(x: rightWrist.x + options.rightWristOffset.x, y: rightWrist.y + options.rightWristOffset.y)
+
+        return [
+            .nose: CGPoint(x: sx, y: sy + 0.08),
+            .neck: CGPoint(x: sx, y: sy),
+            .leftShoulder: leftShoulder,
+            .rightShoulder: rightShoulder,
+            .leftElbow: leftElbow,
+            .rightElbow: rightElbow,
+            .leftWrist: leftWrist,
+            .rightWrist: rightWrist,
+            .leftHip: leftHip,
+            .rightHip: rightHip,
+            .root: CGPoint(x: hipCenter.x, y: hipY),
+            .leftKnee: CGPoint(x: leftHip.x, y: hipY - 0.16),
+            .rightKnee: CGPoint(x: rightHip.x, y: hipY - 0.16),
+            .leftAnkle: CGPoint(x: leftHip.x, y: hipY - 0.31),
+            .rightAnkle: CGPoint(x: rightHip.x, y: hipY - 0.31),
+        ]
+    }
+
+    private static func rotate(_ point: CGPoint, about center: CGPoint, by angle: CGFloat) -> CGPoint {
+        let dx = point.x - center.x, dy = point.y - center.y
+        return CGPoint(
+            x: center.x + dx * cos(angle) - dy * sin(angle),
+            y: center.y + dx * sin(angle) + dy * cos(angle)
+        )
     }
 
     /// Places the wrist straight below (or above) the shoulder at the

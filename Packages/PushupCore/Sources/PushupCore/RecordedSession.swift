@@ -10,6 +10,14 @@ public struct RecordedSession: Codable, Equatable {
         case set
         case negative
         case pose
+        /// An ordinary app workout with no human count, written by the debug
+        /// flight recorder (`trueReps` nil, `live` set to what the engine
+        /// counted). Not part of the evaluation dataset.
+        case workout
+
+        /// The kinds a person can record by hand, which the recorder offers.
+        /// `workout` is written by the app, so it is left out.
+        public static let allCases: [Kind] = [.set, .negative, .pose]
     }
 
     /// Recording conditions. Raw values are the on-disk strings.
@@ -623,6 +631,14 @@ extension RecordedSession {
     /// components.
     public static func isRecordingFileName(_ name: String) -> Bool {
         let pattern = "^(set|negative|pose)_[0-9]{8}-[0-9]{6}_[0-9a-f]{8}\\.json\\z"
+        return name.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// True only for the names `fileName(kind: .workout, ...)` can produce:
+    /// the flight recorder's logs. Deliberately not accepted by
+    /// `isRecordingFileName`, so the recorder never lists or deletes them.
+    public static func isWorkoutLogFileName(_ name: String) -> Bool {
+        let pattern = "^workout_[0-9]{8}-[0-9]{6}_[0-9a-f]{8}\\.json\\z"
         return name.range(of: pattern, options: .regularExpression) != nil
     }
 

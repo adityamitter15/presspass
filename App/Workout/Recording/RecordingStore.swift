@@ -327,6 +327,9 @@ final class RecordingStore: @unchecked Sendable {
         case .pose:
             session.trueReps = nil
             session.poseLabel = session.poseLabel ?? original.poseLabel
+        case .workout:
+            session.trueReps = nil
+            session.poseLabel = nil
         }
         if session.kind != .set {
             session.tags.tempo = .na

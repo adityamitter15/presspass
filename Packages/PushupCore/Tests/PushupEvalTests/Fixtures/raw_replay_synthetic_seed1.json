@@ -1,0 +1,528 @@
+{
+  "pipeline" : {
+    "classifier" : "heuristic",
+    "config" : {
+      "heuristic" : {
+        "ambiguousScore" : 0.35,
+        "confidentScore" : 0.9,
+        "downElbowDegrees" : 120,
+        "upElbowDegrees" : 145
+      },
+      "repCounter" : {
+        "emaAlpha" : 0.3,
+        "enterThreshold" : 0.6,
+        "exitThreshold" : 0.4,
+        "minPhaseDuration" : 0.5,
+        "minSecondsBetweenReps" : 1
+      }
+    },
+    "featureVersion" : "v1",
+    "isDefaultConfig" : true
+  },
+  "schema" : 1,
+  "sessions" : [
+    {
+      "createdAt" : "2026-01-10T10:20:00Z",
+      "durationSeconds" : 19.966667,
+      "file" : "negative_20260110-102000_8302d0df.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 61,
+        "notInPosture" : 0,
+        "processed" : 539
+      },
+      "frames" : 600,
+      "id" : "8302D0DF-13B2-43EE-A339-B46EA0EFCE3F",
+      "kind" : "negative",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 0
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 0,
+      "rejectedReps" : 0,
+      "repTimes" : [
+
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "none",
+        "clothing" : "fitted",
+        "distance" : "mid",
+        "lighting" : "indoor_bright",
+        "tempo" : "na",
+        "variant" : "na"
+      },
+      "trueReps" : 0
+    },
+    {
+      "createdAt" : "2026-01-10T15:20:00Z",
+      "durationSeconds" : 24.966667,
+      "file" : "negative_20260110-152000_8ebd6444.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 61,
+        "notInPosture" : 0,
+        "processed" : 689
+      },
+      "frames" : 750,
+      "id" : "8EBD6444-34D2-487D-B7A4-15D22221064E",
+      "kind" : "negative",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 0
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 0,
+      "rejectedReps" : 0,
+      "repTimes" : [
+
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "none",
+        "clothing" : "loose",
+        "distance" : "far",
+        "lighting" : "dim",
+        "tempo" : "na",
+        "variant" : "na"
+      },
+      "trueReps" : 0
+    },
+    {
+      "createdAt" : "2026-01-10T10:00:00Z",
+      "durationSeconds" : 11.966667,
+      "file" : "set_20260110-100000_48c1cc4d.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 0,
+        "notInPosture" : 0,
+        "processed" : 360
+      },
+      "frames" : 360,
+      "id" : "48C1CC4D-8BBA-4E3C-AFBB-F4D4829D7AD0",
+      "kind" : "set",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 5
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 5,
+      "rejectedReps" : 0,
+      "repTimes" : [
+        2.8,
+        4.766667,
+        6.8,
+        8.8,
+        10.766667
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "none",
+        "clothing" : "fitted",
+        "distance" : "mid",
+        "lighting" : "indoor_bright",
+        "tempo" : "normal",
+        "variant" : "standard"
+      },
+      "trueReps" : 5
+    },
+    {
+      "createdAt" : "2026-01-10T10:04:00Z",
+      "durationSeconds" : 17.966667,
+      "file" : "set_20260110-100400_d406c6f3.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 13,
+        "notInPosture" : 0,
+        "processed" : 527
+      },
+      "frames" : 540,
+      "id" : "D406C6F3-F700-4E53-98CE-1047495AC53A",
+      "kind" : "set",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 8
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 8,
+      "rejectedReps" : 0,
+      "repTimes" : [
+        2.8,
+        4.8,
+        6.8,
+        8.8,
+        10.766667,
+        12.8,
+        14.8,
+        16.8
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "none",
+        "clothing" : "fitted",
+        "distance" : "mid",
+        "lighting" : "indoor_bright",
+        "tempo" : "normal",
+        "variant" : "standard"
+      },
+      "trueReps" : 8
+    },
+    {
+      "createdAt" : "2026-01-10T10:08:00Z",
+      "durationSeconds" : 49.966667,
+      "file" : "set_20260110-100800_fdb87aac.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 0,
+        "notInPosture" : 0,
+        "processed" : 1500
+      },
+      "frames" : 1500,
+      "id" : "FDB87AAC-7F31-4AEE-8AA6-53DF81007761",
+      "kind" : "set",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 12
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 12,
+      "rejectedReps" : 0,
+      "repTimes" : [
+        4.466667,
+        8.466667,
+        12.5,
+        16.466667,
+        20.5,
+        24.5,
+        28.5,
+        32.466667,
+        36.466667,
+        40.466667,
+        44.466667,
+        48.466667
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "none",
+        "clothing" : "fitted",
+        "distance" : "mid",
+        "lighting" : "indoor_bright",
+        "tempo" : "slow",
+        "variant" : "standard"
+      },
+      "trueReps" : 12
+    },
+    {
+      "createdAt" : "2026-01-10T10:12:00Z",
+      "durationSeconds" : 10.966667,
+      "file" : "set_20260110-101200_b8796644.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 0,
+        "notInPosture" : 0,
+        "processed" : 330
+      },
+      "frames" : 330,
+      "id" : "B8796644-6093-489A-AEF8-A08F842EBF6A",
+      "kind" : "set",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 6
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 6,
+      "rejectedReps" : 0,
+      "repTimes" : [
+        2.366667,
+        3.866667,
+        5.366667,
+        6.866667,
+        8.366667,
+        9.866667
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "none",
+        "clothing" : "fitted",
+        "distance" : "mid",
+        "lighting" : "indoor_bright",
+        "tempo" : "fast",
+        "variant" : "standard"
+      },
+      "trueReps" : 6
+    },
+    {
+      "createdAt" : "2026-01-10T10:16:00Z",
+      "durationSeconds" : 13.966667,
+      "file" : "set_20260110-101600_86460416.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 0,
+        "notInPosture" : 0,
+        "processed" : 420
+      },
+      "frames" : 420,
+      "id" : "86460416-FE8B-42C8-A375-EE36C6B48B3C",
+      "kind" : "set",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 0
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 0,
+      "rejectedReps" : 0,
+      "repTimes" : [
+
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "half_reps",
+        "clothing" : "fitted",
+        "distance" : "mid",
+        "lighting" : "indoor_bright",
+        "tempo" : "normal",
+        "variant" : "standard"
+      },
+      "trueReps" : 0
+    },
+    {
+      "createdAt" : "2026-01-10T15:00:00Z",
+      "durationSeconds" : 7.966667,
+      "file" : "set_20260110-150000_45ea61f9.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 0,
+        "notInPosture" : 0,
+        "processed" : 240
+      },
+      "frames" : 240,
+      "id" : "45EA61F9-5771-4073-ABCD-7722A7724C12",
+      "kind" : "set",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 3
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 3,
+      "rejectedReps" : 0,
+      "repTimes" : [
+        2.8,
+        4.8,
+        6.8
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "none",
+        "clothing" : "loose",
+        "distance" : "far",
+        "lighting" : "dim",
+        "tempo" : "normal",
+        "variant" : "standard"
+      },
+      "trueReps" : 3
+    },
+    {
+      "createdAt" : "2026-01-10T15:04:00Z",
+      "durationSeconds" : 21.966667,
+      "file" : "set_20260110-150400_85097d9e.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 13,
+        "notInPosture" : 0,
+        "processed" : 647
+      },
+      "frames" : 660,
+      "id" : "85097D9E-4CBB-47E6-B9B6-73F0CF7B0926",
+      "kind" : "set",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 10
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 10,
+      "rejectedReps" : 0,
+      "repTimes" : [
+        2.8,
+        4.8,
+        6.8,
+        8.8,
+        10.8,
+        12.8,
+        14.8,
+        16.8,
+        18.8,
+        20.8
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "none",
+        "clothing" : "loose",
+        "distance" : "far",
+        "lighting" : "dim",
+        "tempo" : "normal",
+        "variant" : "standard"
+      },
+      "trueReps" : 10
+    },
+    {
+      "createdAt" : "2026-01-10T15:08:00Z",
+      "durationSeconds" : 61.966667,
+      "file" : "set_20260110-150800_44ffd438.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 0,
+        "notInPosture" : 0,
+        "processed" : 1860
+      },
+      "frames" : 1860,
+      "id" : "44FFD438-160D-4AEE-B729-C497ED64F106",
+      "kind" : "set",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 15
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 15,
+      "rejectedReps" : 0,
+      "repTimes" : [
+        4.466667,
+        8.466667,
+        12.433333,
+        16.466667,
+        20.466667,
+        24.5,
+        28.466667,
+        32.466667,
+        36.466667,
+        40.466667,
+        44.466667,
+        48.466667,
+        52.466667,
+        56.5,
+        60.5
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "none",
+        "clothing" : "loose",
+        "distance" : "far",
+        "lighting" : "dim",
+        "tempo" : "slow",
+        "variant" : "standard"
+      },
+      "trueReps" : 15
+    },
+    {
+      "createdAt" : "2026-01-10T15:12:00Z",
+      "durationSeconds" : 16.966667,
+      "file" : "set_20260110-151200_8a25b0d4.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 0,
+        "notInPosture" : 0,
+        "processed" : 510
+      },
+      "frames" : 510,
+      "id" : "8A25B0D4-5224-4F92-B900-5B7AF5034102",
+      "kind" : "set",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 4
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 4,
+      "rejectedReps" : 0,
+      "repTimes" : [
+        2.8,
+        4.8,
+        6.8,
+        8.8
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "half_reps",
+        "clothing" : "loose",
+        "distance" : "far",
+        "lighting" : "dim",
+        "tempo" : "normal",
+        "variant" : "standard"
+      },
+      "trueReps" : 4
+    },
+    {
+      "createdAt" : "2026-01-10T15:16:00Z",
+      "durationSeconds" : 13.966667,
+      "file" : "set_20260110-151600_91d8d749.json",
+      "frameCounts" : {
+        "featuresNil" : 0,
+        "lowConfidence" : 0,
+        "noBody" : 0,
+        "notInPosture" : 420,
+        "processed" : 0
+      },
+      "frames" : 420,
+      "id" : "91D8D749-7720-4752-8654-C114880512B4",
+      "kind" : "set",
+      "live" : {
+        "classifier" : "heuristic",
+        "rejectedReps" : 0,
+        "reps" : 0
+      },
+      "meanFps" : 30,
+      "notes" : "synthetic",
+      "predictedReps" : 0,
+      "rejectedReps" : 0,
+      "repTimes" : [
+
+      ],
+      "subject" : "SYN",
+      "tags" : {
+        "cheat" : "arm_wave",
+        "clothing" : "loose",
+        "distance" : "far",
+        "lighting" : "dim",
+        "tempo" : "normal",
+        "variant" : "standard"
+      },
+      "trueReps" : 0
+    }
+  ],
+  "skipped" : [
+
+  ],
+  "tool" : "pushup-eval"
+}

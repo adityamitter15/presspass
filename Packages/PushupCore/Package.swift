@@ -26,7 +26,8 @@ let package = Package(
         ),
         .testTarget(
             name: "PushupEvalTests",
-            dependencies: ["PushupCore", "PushupSynth", "PushupEval"]
+            dependencies: ["PushupCore", "PushupSynth", "PushupEval"],
+            resources: [.copy("Fixtures")]
         ),
     ]
 )

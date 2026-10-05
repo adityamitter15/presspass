@@ -9,6 +9,11 @@
 # A file that already exists with different contents is reported as a conflict
 # and skipped, never overwritten. Nothing is deleted, on the phone or here.
 #
+# It also pulls Documents/WorkoutLogs, the debug app's flight recorder (the
+# raw frames of ordinary workouts, kind "workout"), into private/workout-logs/.
+# Those are never copied into data/sessions. A phone with no WorkoutLogs folder
+# is fine.
+#
 # device-id is a CoreDevice identifier from `xcrun devicectl list devices`. With
 # no argument the single connected phone is used.
 set -euo pipefail
@@ -17,6 +22,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUNDLE_ID="com.addymitter.pushuptime.dev"
 SESSIONS_DIR="$ROOT/data/sessions"
 VIDEO_DIR="$ROOT/private/video"
+WORKOUT_LOGS_DIR="$ROOT/private/workout-logs"
 
 if ! xcrun --find devicectl >/dev/null 2>&1; then
     echo "error: xcrun devicectl not found. Install Xcode 15 or later." >&2
@@ -100,6 +106,33 @@ copy_new() {
         echo conflict
     fi
 }
+
+# The flight recorder's workout logs, kept apart from the dataset. The folder
+# does not exist until the first workout has been logged, so a failed copy is
+# not an error.
+WORKOUT_PULL="$STAGING/workout-logs"
+mkdir -p "$WORKOUT_PULL"
+if xcrun devicectl device copy from \
+        --device "$DEVICE" \
+        --domain-type appDataContainer \
+        --domain-identifier "$BUNDLE_ID" \
+        --source Documents/WorkoutLogs \
+        --destination "$WORKOUT_PULL" \
+        --quiet >/dev/null 2>&1; then
+    mkdir -p "$WORKOUT_LOGS_DIR"
+    NEW_LOGS=0; OLD_LOGS=0
+    while IFS= read -r -d '' file; do
+        outcome="$(copy_new "$file" "$WORKOUT_LOGS_DIR")"
+        case "$outcome" in
+            new) NEW_LOGS=$((NEW_LOGS + 1)) ;;
+            same) OLD_LOGS=$((OLD_LOGS + 1)) ;;
+            conflict) echo "conflict: $WORKOUT_LOGS_DIR/$(basename "$file") exists with different contents, skipped" ;;
+        esac
+    done < <(find "$WORKOUT_PULL" -type f -name 'workout_*.json' -print0)
+    echo "workout logs: $NEW_LOGS new, $OLD_LOGS already present ($WORKOUT_LOGS_DIR)"
+else
+    echo "workout logs: none on the phone"
+fi
 
 FOUND=0
 while IFS= read -r -d '' file; do

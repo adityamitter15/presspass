@@ -163,32 +163,23 @@ struct WorkoutView: View {
 
 #if DEBUG
 extension WorkoutView {
-    /// A finished-set record built by running the bundled demo session through
-    /// the pipeline at once, for `-screen summary`. Nothing is credited or
-    /// saved. It always carries two shallow attempts so the summary's layout
-    /// with that line is the one checked.
+    /// A finished-set record built by running the bundled demo session
+    /// through the workout session engine at once, for `-screen summary`.
+    /// Nothing is credited or saved. It always carries two shallow attempts
+    /// so the summary's layout with that line is the one checked.
     static func demoSummaryRecord() -> WorkoutSessionRecord? {
         guard let session = AppEnvironment.current.loadDemoSession() else { return nil }
-        let pipeline = PushupPipeline(classifier: PoseClassifierFactory.makeDefault())
-        var tracker = DepthTracker()
-        var reps = 0
-        var times: [Double] = []
-        var shallow = 0
+        let engine = WorkoutSessionEngine(classifier: CoreMLPoseClassifier.loadFromBundle())
         let frames = session.poseFrames()
-        let start = frames.first?.timestamp ?? 0
-        for frame in frames {
-            let before = reps
-            let output = pipeline.process(frame)
-            reps = output.reps
-            if reps > before { times.append(frame.timestamp - start) }
-            if case .shallowAttempt = tracker.update(with: output, repsBefore: before) { shallow += 1 }
-        }
+        for frame in frames { engine.process(frame) }
+        let start = engine.activeStartTimestamp ?? frames.first?.timestamp ?? 0
+        let reps = engine.reps
         return WorkoutSessionRecord(
             startedAt: .now,
             durationSeconds: (frames.last?.timestamp ?? start) - start,
             reps: reps,
-            repTimes: times,
-            shallowAttempts: max(shallow, 2),
+            repTimes: engine.repTimes.map { $0 - start },
+            shallowAttempts: max(engine.shallowAttempts, 2),
             minutesEarned: reps
         )
     }

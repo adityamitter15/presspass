@@ -38,6 +38,7 @@ struct RecorderLabelSheet: View {
                     case .set: setBody
                     case .negative: confirmBody("Negative take", "Nothing should have counted. The count is saved as 0.")
                     case .pose: confirmBody("Held pose: \(take.poseLabel.title.lowercased())", "There is no count to enter for a held pose.")
+                    case .workout: EmptyView()
                     }
                 }
                 .padding(.horizontal, Theme.Space.l)

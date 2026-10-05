@@ -16,6 +16,39 @@ public enum ClassifierSource: Equatable {
     }
 }
 
+/// What a replay runs each take through.
+public enum ReplayMode: String, Equatable {
+    /// A bare `PushupPipeline`: the counting path alone, no start, end or gate logic.
+    case raw
+    /// A fresh `WorkoutSessionEngine`: the behaviour the app ships.
+    case session
+}
+
+/// Frames of one take by the session engine's first failing check, plus the
+/// frames that passed every check. The six counts add up to the number of frames.
+public struct GateCounts: Codable, Equatable {
+    public var noBody = 0
+    public var lowConfidence = 0
+    public var notInPosture = 0
+    public var notHorizontal = 0
+    public var handsMoving = 0
+    /// No check failed: a valid planted posture.
+    public var passed = 0
+
+    public var total: Int { noBody + lowConfidence + notInPosture + notHorizontal + handsMoving + passed }
+
+    mutating func tally(_ failure: WorkoutSessionEngine.GateFailure?) {
+        switch failure {
+        case .noBody: noBody += 1
+        case .lowConfidence: lowConfidence += 1
+        case .notInPosture: notInPosture += 1
+        case .notHorizontal: notHorizontal += 1
+        case .handsMoving: handsMoving += 1
+        case nil: passed += 1
+        }
+    }
+}
+
 /// How each frame of a session was handled. The five counts add up to the
 /// number of frames.
 public struct FrameCounts: Codable, Equatable {
@@ -51,7 +84,17 @@ public struct SessionResult: Codable, Equatable {
     public var frames: Int
     public var durationSeconds: Double
     public var meanFps: Double
+    /// In session mode these describe how the take looked to the frame alone
+    /// (the same buckets as in raw mode); `gateCounts` has the engine's view.
     public var frameCounts: FrameCounts
+    // Session mode only. Absent in raw mode, so raw output does not change.
+    /// Whether the engine ever left positioning.
+    public var started: Bool?
+    /// Frame time of the start of the last session the engine began, nil if it never started.
+    public var startTime: Double?
+    /// The engine's phase after the last frame: positioning, active, finishing or finished.
+    public var endPhase: String?
+    public var gateCounts: GateCounts?
 }
 
 public struct PipelineDescription: Codable, Equatable {
@@ -63,6 +106,11 @@ public struct PipelineDescription: Codable, Equatable {
     /// File name of the Core ML model, when one was used.
     public var model: String?
     public var config: PipelineConfig
+    // Session mode only. Absent in raw mode, so raw output does not change.
+    /// "session" when the takes were run through `WorkoutSessionEngine`.
+    public var mode: String?
+    /// The full session config used, `config` is its `pipeline`.
+    public var sessionConfig: SessionConfig?
 }
 
 public struct ReplayOutput: Codable, Equatable {
@@ -79,30 +127,56 @@ public enum Replay {
 
     /// Replays every session in `directory` and returns the full result. The
     /// output holds no wall-clock data, so the same inputs encode to the same
-    /// bytes.
+    /// bytes. In `.session` mode `sessionConfig` is used and `config` is ignored.
     public static func run(
         directory: URL,
         config: PipelineConfig,
-        source: ClassifierSource
+        source: ClassifierSource,
+        mode: ReplayMode = .raw,
+        sessionConfig: SessionConfig? = nil
     ) throws -> ReplayOutput {
         let loaded = try SessionLoader.load(directory: directory)
         let shared = try sharedClassifier(for: source)
-        let results = loaded.sessions.map { entry in
-            replay(entry.session, file: entry.file, pipeline: config.makePipeline(classifier: shared))
+
+        switch mode {
+        case .raw:
+            let results = loaded.sessions.map { entry in
+                replay(entry.session, file: entry.file, pipeline: config.makePipeline(classifier: shared))
+            }
+            return ReplayOutput(
+                schema: outputSchema,
+                tool: toolName,
+                pipeline: PipelineDescription(
+                    classifier: source.name,
+                    featureVersion: PushupFeatureExtractor.featureVersion,
+                    isDefaultConfig: config == .default,
+                    model: modelName(source),
+                    config: config
+                ),
+                sessions: results,
+                skipped: loaded.skipped
+            )
+        case .session:
+            let session = sessionConfig ?? SessionConfig(pipeline: config)
+            let results = loaded.sessions.map { entry in
+                replay(entry.session, file: entry.file, engine: WorkoutSessionEngine(config: session, classifier: shared))
+            }
+            return ReplayOutput(
+                schema: outputSchema,
+                tool: toolName,
+                pipeline: PipelineDescription(
+                    classifier: source.name,
+                    featureVersion: PushupFeatureExtractor.featureVersion,
+                    isDefaultConfig: session == .default,
+                    model: modelName(source),
+                    config: session.pipeline,
+                    mode: mode.rawValue,
+                    sessionConfig: session
+                ),
+                sessions: results,
+                skipped: loaded.skipped
+            )
         }
-        return ReplayOutput(
-            schema: outputSchema,
-            tool: toolName,
-            pipeline: PipelineDescription(
-                classifier: source.name,
-                featureVersion: PushupFeatureExtractor.featureVersion,
-                isDefaultConfig: config == .default,
-                model: modelName(source),
-                config: config
-            ),
-            sessions: results,
-            skipped: loaded.skipped
-        )
     }
 
     /// Feeds one session through `pipeline` (which must be fresh) in frame
@@ -142,6 +216,47 @@ public enum Replay {
             durationSeconds: round(duration, places: 6),
             meanFps: round(meanFps, places: 3),
             frameCounts: counts
+        )
+    }
+
+    /// Feeds one session through `engine` (which must be fresh) in frame order.
+    /// `predictedReps` and `repTimes` are the engine's, so a set that was never
+    /// started, or that stopped being counted, shows exactly that.
+    public static func replay(_ session: RecordedSession, file: String, engine: WorkoutSessionEngine) -> SessionResult {
+        var counts = FrameCounts()
+        var gates = GateCounts()
+        var startTime: Double?
+
+        for frame in session.poseFrames() {
+            counts.tally(frame: frame)
+            let output = engine.process(frame)
+            gates.tally(output.gateFailure)
+            if output.events.contains(.started) { startTime = frame.timestamp }
+        }
+
+        let duration = (session.frames.last?.t ?? 0) - (session.frames.first?.t ?? 0)
+        let meanFps = duration > 0 ? Double(session.frames.count - 1) / duration : 0
+        return SessionResult(
+            id: session.id,
+            file: file,
+            kind: session.kind.rawValue,
+            subject: session.subject,
+            createdAt: session.createdAt,
+            tags: session.tags,
+            notes: session.notes,
+            trueReps: session.trueReps,
+            live: session.live,
+            predictedReps: engine.reps,
+            rejectedReps: engine.rejectedReps,
+            repTimes: engine.repTimes,
+            frames: session.frames.count,
+            durationSeconds: round(duration, places: 6),
+            meanFps: round(meanFps, places: 3),
+            frameCounts: counts,
+            started: startTime != nil,
+            startTime: startTime.map { round($0, places: 6) },
+            endPhase: engine.phase.name,
+            gateCounts: gates
         )
     }
 
@@ -194,6 +309,38 @@ extension FrameCounts {
             case .notInPushupPosture: notInPosture += 1
             case .none: processed += 1
             }
+        }
+    }
+}
+
+extension FrameCounts {
+    /// The same buckets as `tally(frame:output:)`, from the frame alone. The
+    /// buckets only depend on the frame (the feature gate, the confidence
+    /// floor, the posture gate), never on counter state, so this agrees with
+    /// the pipeline-based tally frame by frame.
+    mutating func tally(frame: PoseFrame) {
+        if frame.joints.isEmpty {
+            noBody += 1
+        } else if PushupFeatureExtractor.extract(frame.joints) == nil {
+            featuresNil += 1
+        } else if !PostureGate.requiredJointsConfident(frame.joints) {
+            lowConfidence += 1
+        } else if !PostureGate.isPushupPosture(frame.joints) {
+            notInPosture += 1
+        } else {
+            processed += 1
+        }
+    }
+}
+
+extension WorkoutSessionEngine.Phase {
+    /// The phase as a plain word, for output files.
+    public var name: String {
+        switch self {
+        case .positioning: "positioning"
+        case .active: "active"
+        case .finishing: "finishing"
+        case .finished: "finished"
         }
     }
 }

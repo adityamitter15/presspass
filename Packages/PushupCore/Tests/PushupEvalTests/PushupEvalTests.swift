@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 import PushupCore
@@ -314,6 +315,7 @@ struct FeaturesCSVTests {
     private let expectedHeader = "session_id,frame,t,has_features,"
         + (0..<25).map { "f\($0)" }.joined(separator: ",")
         + ",posture_valid,joints_confident,heuristic_label,heuristic_confidence"
+        + ",torso_ratio,wrist_motion_ratio,raw_depth,gate_failure,session_phase,session_reps"
 
     private func loaded(_ sessions: [RecordedSession]) -> [LoadedSession] {
         sessions.enumerated().map { LoadedSession(file: "s\($0.offset).json", session: $0.element) }
@@ -332,7 +334,7 @@ struct FeaturesCSVTests {
         #expect(lines.first.map(String.init) == expectedHeader)
         #expect(lines.last == "")
         #expect(lines.count - 2 == sessions.map(\.frames.count).reduce(0, +))
-        #expect(lines.dropFirst().dropLast().allSatisfy { $0.split(separator: ",", omittingEmptySubsequences: false).count == 33 })
+        #expect(lines.dropFirst().dropLast().allSatisfy { $0.split(separator: ",", omittingEmptySubsequences: false).count == 39 })
     }
 
     @Test("a no-body frame has has_features 0 and empty feature cells")
@@ -346,6 +348,9 @@ struct FeaturesCSVTests {
         #expect(cells[4...28].allSatisfy { $0.isEmpty })
         #expect(cells[29] == "0")
         #expect(cells[31].isEmpty && cells[32].isEmpty)
+        // No body: no ratios, a noBody gate failure, positioning and no reps.
+        #expect(cells[33...35].allSatisfy { $0.isEmpty })
+        #expect(cells[36] == "noBody" && cells[37] == "positioning" && cells[38] == "0")
 
         // The first frame with a body has numeric features and a label.
         let withBody = try #require(lines.dropFirst().first { $0.split(separator: ",", omittingEmptySubsequences: false)[3] == "1" })
@@ -372,10 +377,18 @@ struct FeaturesCSVTests {
 struct ArgumentParsingTests {
     @Test("valid command lines parse")
     func valid() {
-        #expect(CLI.parse(["replay", "--data", "d", "--out", "o.json"]) == .success(.replay(data: "d", out: "o.json", config: nil, model: nil)))
+        #expect(CLI.parse(["replay", "--data", "d", "--out", "o.json"])
+            == .success(.replay(data: "d", out: "o.json", config: nil, model: nil, mode: .raw, sessionConfig: nil)))
         #expect(CLI.parse(["replay", "--out=o.json", "--data=d", "--config", "c.json", "--model", "m.mlmodelc"])
-            == .success(.replay(data: "d", out: "o.json", config: "c.json", model: "m.mlmodelc")))
-        #expect(CLI.parse(["features", "--data", "d", "--out", "f.csv"]) == .success(.features(data: "d", out: "f.csv", config: nil)))
+            == .success(.replay(data: "d", out: "o.json", config: "c.json", model: "m.mlmodelc", mode: .raw, sessionConfig: nil)))
+        #expect(CLI.parse(["replay", "--data", "d", "--out", "o.json", "--mode", "raw"])
+            == .success(.replay(data: "d", out: "o.json", config: nil, model: nil, mode: .raw, sessionConfig: nil)))
+        #expect(CLI.parse(["replay", "--data", "d", "--out", "o.json", "--mode", "session", "--session-config", "s.json"])
+            == .success(.replay(data: "d", out: "o.json", config: nil, model: nil, mode: .session, sessionConfig: "s.json")))
+        #expect(CLI.parse(["features", "--data", "d", "--out", "f.csv"])
+            == .success(.features(data: "d", out: "f.csv", config: nil, sessionConfig: nil)))
+        #expect(CLI.parse(["features", "--data", "d", "--out", "f.csv", "--session-config", "s.json"])
+            == .success(.features(data: "d", out: "f.csv", config: nil, sessionConfig: "s.json")))
         #expect(CLI.parse(["synth", "--out", "s"]) == .success(.synth(out: "s", seed: 1)))
         #expect(CLI.parse(["synth", "--out", "s", "--seed", "7"]) == .success(.synth(out: "s", seed: 7)))
         #expect(CLI.parse(["synth", "--out", "s", "--only", "clean-8"]) == .success(.synthOne(name: "clean-8", out: "s", seed: 1)))
@@ -393,6 +406,9 @@ struct ArgumentParsingTests {
         ["replay", "--data", "d", "--out", "o", "--nope", "x"],
         ["replay", "--data", "d", "--data", "e", "--out", "o"],
         ["replay", "--data", "d", "--out", "o", "stray"],
+        ["replay", "--data", "d", "--out", "o", "--mode", "fast"],
+        ["replay", "--data", "d", "--out", "o", "--session-config", "s.json"],
+        ["replay", "--data", "d", "--out", "o", "--mode", "raw", "--session-config", "s.json"],
         ["features", "--data", "d"],
         ["features", "--data", "d", "--out", "o", "--model", "m"],
         ["synth"],
@@ -424,5 +440,195 @@ struct ArgumentParsingTests {
     @Test("usage text has no em dashes")
     func usageText() {
         #expect(!CLI.usage.contains("\u{2014}"))
+    }
+}
+
+// MARK: - Session mode
+
+/// A synthetic set the engine can count: a body seen head-on from the floor.
+private func planted(reps: Int, seed: UInt64 = 1) -> RecordedSession {
+    SyntheticSessions.cleanSet(reps: reps, tempo: .normal, seed: seed, options: .foreshortened())
+}
+
+private func sessionReplay(_ session: RecordedSession, config: SessionConfig = .default) -> SessionResult {
+    Replay.replay(session, file: "test.json", engine: WorkoutSessionEngine(config: config))
+}
+
+@Suite("Replay modes")
+struct ReplayModeTests {
+    @Test("raw mode output for the synthetic dataset is unchanged from before session mode existed")
+    func rawUnchanged() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try SyntheticDataset.write(to: dir.appendingPathComponent("data"))
+        let out = dir.appendingPathComponent("predictions.json")
+        #expect(CLI.main(arguments: ["replay", "--data", dir.appendingPathComponent("data").path, "--out", out.path], out: { _ in }, err: { _ in }) == 0)
+        let url = try #require(Bundle.module.url(forResource: "raw_replay_synthetic_seed1", withExtension: "json", subdirectory: "Fixtures"))
+        #expect(try Data(contentsOf: out) == Data(contentsOf: url))
+        // Passing the default mode by name changes nothing either.
+        let named = dir.appendingPathComponent("named.json")
+        #expect(CLI.main(arguments: ["replay", "--data", dir.appendingPathComponent("data").path, "--out", named.path, "--mode", "raw"], out: { _ in }, err: { _ in }) == 0)
+        #expect(try Data(contentsOf: named) == Data(contentsOf: url))
+    }
+
+    @Test("raw output carries none of the session-only fields")
+    func rawHasNoSessionFields() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try SyntheticDataset.write(to: dir)
+        let output = try Replay.run(directory: dir, config: .default, source: .heuristic)
+        #expect(output.pipeline.mode == nil && output.pipeline.sessionConfig == nil)
+        #expect(output.sessions.allSatisfy { $0.started == nil && $0.startTime == nil && $0.endPhase == nil && $0.gateCounts == nil })
+    }
+
+    @Test("session mode counts a planted set exactly and describes the take")
+    func sessionCounts() throws {
+        let result = sessionReplay(planted(reps: 6))
+        #expect(result.predictedReps == 6)
+        #expect(result.started == true)
+        let start = try #require(result.startTime)
+        #expect(start >= 0.9 && start < 1.3)
+        #expect(result.endPhase == "active")
+        #expect(result.repTimes.count == 6 && result.repTimes.allSatisfy { $0 > start })
+        let gates = try #require(result.gateCounts)
+        #expect(gates.total == result.frames)
+        #expect(gates.passed > 0)
+        #expect(result.frameCounts.total == result.frames)
+    }
+
+    @Test("session mode on takes the engine should reject")
+    func sessionRejects() throws {
+        // The legacy-geometry synthetic sets are tall bodies: the horizontal-body gate rejects them.
+        let tall = sessionReplay(SyntheticSessions.cleanSet(reps: 5))
+        #expect(tall.predictedReps == 0 && tall.started == false && tall.startTime == nil && tall.endPhase == "positioning")
+        let gates = try #require(tall.gateCounts)
+        #expect(gates.notHorizontal > 0 && gates.passed == 0)
+        // The same take under the legacy session config is counted.
+        #expect(sessionReplay(SyntheticSessions.cleanSet(reps: 5), config: .legacy).predictedReps == 5)
+    }
+
+    @Test("session mode records the mode and the config, and isDefaultConfig follows the session config")
+    func sessionPipelineBlock() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try SyntheticDataset.write(to: dir)
+        let normal = try Replay.run(directory: dir, config: .default, source: .heuristic, mode: .session, sessionConfig: nil)
+        #expect(normal.pipeline.mode == "session")
+        #expect(normal.pipeline.sessionConfig == .default)
+        #expect(normal.pipeline.isDefaultConfig)
+        #expect(normal.sessions.count == SyntheticDataset.sessionCount)
+        #expect(normal.sessions.allSatisfy { $0.gateCounts?.total == $0.frames })
+
+        let legacy = try Replay.run(directory: dir, config: .default, source: .heuristic, mode: .session, sessionConfig: .legacy)
+        #expect(!legacy.pipeline.isDefaultConfig)
+        #expect(legacy.pipeline.sessionConfig == .legacy)
+        // Under the legacy session config the synthetic clean sets are counted again.
+        let clean = legacy.sessions.filter { $0.tags.cheat == .none && $0.kind == "set" }
+        #expect(clean.allSatisfy { $0.predictedReps == $0.trueReps })
+    }
+
+    @Test("a session config file reaches the replay command, and --config replaces its pipeline")
+    func sessionConfigFile() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let data = dir.appendingPathComponent("data")
+        try SyntheticDataset.write(to: data)
+
+        let sessionPath = dir.appendingPathComponent("session.json")
+        try Data(#"{"horizontalBodyGate": false, "plantedHandsGate": false, "startRequiresStraightArms": false}"#.utf8).write(to: sessionPath)
+        let out = dir.appendingPathComponent("out.json")
+        #expect(CLI.main(arguments: ["replay", "--data", data.path, "--out", out.path, "--mode", "session", "--session-config", sessionPath.path], out: { _ in }, err: { _ in }) == 0)
+        let decoded = try JSONDecoder().decode(ReplayOutput.self, from: Data(contentsOf: out))
+        #expect(decoded.pipeline.mode == "session")
+        #expect(decoded.pipeline.sessionConfig == .legacy)
+        #expect(decoded.sessions.contains { $0.predictedReps > 0 })
+
+        let pipelinePath = dir.appendingPathComponent("pipeline.json")
+        try Data(#"{"repCounter": {"minPhaseDuration": 30}}"#.utf8).write(to: pipelinePath)
+        let merged = try CLI.loadSessionConfig(sessionPath.path, pipeline: CLI.loadConfig(pipelinePath.path))
+        #expect(merged.pipeline.repCounter.minPhaseDuration == 30)
+        #expect(!merged.horizontalBodyGate)
+        #expect(throws: EvalError.self) { try CLI.loadSessionConfig(dir.appendingPathComponent("missing.json").path) }
+    }
+
+    @Test("running session mode twice gives identical bytes")
+    func sessionDeterministic() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let data = dir.appendingPathComponent("data")
+        try SyntheticDataset.write(to: data)
+        try planted(reps: 4).write(to: data.appendingPathComponent(RecordedSession.fileName(kind: .set, createdAt: "2026-01-11T10:00:00Z", id: planted(reps: 4).id)))
+        var outputs: [Data] = []
+        for name in ["a.json", "b.json"] {
+            let path = dir.appendingPathComponent(name)
+            #expect(CLI.main(arguments: ["replay", "--data", data.path, "--out", path.path, "--mode", "session"], out: { _ in }, err: { _ in }) == 0)
+            outputs.append(try Data(contentsOf: path))
+        }
+        #expect(outputs[0] == outputs[1])
+    }
+}
+
+@Suite("Features CSV session columns")
+struct FeaturesSessionColumnTests {
+    private func loaded(_ sessions: [RecordedSession]) -> [LoadedSession] {
+        sessions.enumerated().map { LoadedSession(file: "s\($0.offset).json", session: $0.element) }
+    }
+
+    @Test("the original columns are unchanged and the new ones follow")
+    func originalColumnsUnchanged() throws {
+        // The first 33 columns of the synthetic dataset, hashed, as produced before the session columns existed.
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try SyntheticDataset.write(to: dir)
+        let text = FeaturesCSV.render(sessions: try SessionLoader.load(directory: dir).sessions, config: .default)
+        var hasher = SHA256()
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            let cells = line.split(separator: ",", omittingEmptySubsequences: false).prefix(33)
+            hasher.update(data: Data((cells.joined(separator: ",") + "\n").utf8))
+        }
+        let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        #expect(digest == "c3d9056b2b74dd294c7745ead0fa6f378f04845ded5b47afcbabf2ee85234d87")
+    }
+
+    @Test("the session columns describe each frame")
+    func columns() throws {
+        let text = FeaturesCSV.render(sessions: loaded([planted(reps: 3)]), config: .default)
+        let rows = text.split(separator: "\n").dropFirst().map { $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init) }
+        #expect(rows.allSatisfy { $0.count == 39 })
+        let last = try #require(rows.last)
+        #expect(abs((Float(last[33]) ?? 0) - 0.4) < 0.1)
+        #expect(Float(last[34]) != nil && Float(last[35]) != nil)
+        #expect(last[36].isEmpty)
+        #expect(last[37] == "active")
+        #expect(last[38] == "3")
+        #expect(rows.first?[37] == "positioning")
+        #expect(Set(rows.map { $0[37] }).isSuperset(of: ["positioning", "active"]))
+    }
+
+    @Test("a session config changes the session columns only")
+    func sessionConfigChangesOnlyNewColumns() {
+        let sessions = loaded([SyntheticSessions.cleanSet(reps: 2)])
+        let normal = FeaturesCSV.render(sessions: sessions, config: .default)
+        let legacy = FeaturesCSV.render(sessions: sessions, config: .default, sessionConfig: .legacy)
+        func base(_ text: String) -> [String] {
+            text.split(separator: "\n").map { $0.split(separator: ",", omittingEmptySubsequences: false).prefix(33).joined(separator: ",") }
+        }
+        #expect(base(normal) == base(legacy))
+        #expect(normal != legacy)
+    }
+
+    @Test("the features command accepts a session config")
+    func command() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let data = dir.appendingPathComponent("data")
+        try SyntheticDataset.write(to: data)
+        let configPath = dir.appendingPathComponent("s.json")
+        try Data(#"{"horizontalBodyGate": false}"#.utf8).write(to: configPath)
+        let out = dir.appendingPathComponent("f.csv")
+        let code = CLI.main(arguments: ["features", "--data", data.path, "--out", out.path, "--session-config", configPath.path], out: { _ in }, err: { _ in })
+        #expect(code == 0)
+        let text = try String(contentsOf: out, encoding: .utf8)
+        #expect(!text.contains(",notHorizontal,"))
     }
 }

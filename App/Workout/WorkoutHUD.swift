@@ -107,7 +107,7 @@ struct WorkoutHUD: View {
         switch viewModel.phase {
         case .positioning: viewModel.holdProgress
         case .active: viewModel.depth
-        case .finishing(let seconds): seconds / WorkoutFlow.Config.default.finishingCountdown
+        case .finishing(let seconds): seconds / max(viewModel.finishingCountdown, 0.001)
         case .finished: 0
         }
     }
@@ -216,9 +216,19 @@ struct WorkoutHUD: View {
     private var secondRow: some View {
         switch kind {
         case .positioning:
-            HStack(spacing: Theme.Space.s) {
-                CheckChip(title: "Body in frame", isDone: viewModel.isBodyDetected)
-                CheckChip(title: "Hands on the floor", isDone: viewModel.isPostureValid)
+            VStack(spacing: Theme.Space.m) {
+                HStack(spacing: Theme.Space.s) {
+                    CheckChip(title: "Body in frame", isDone: viewModel.isBodyDetected)
+                    CheckChip(title: "Hands on the floor", isDone: viewModel.isPostureValid)
+                }
+                ZStack {
+                    if let hint = viewModel.hint {
+                        HintPill(systemImage: hint.systemImage, text: hint.text, tone: hint.tone)
+                            .id(hint)
+                            .transition(.popIn(reduceMotion: reduceMotion, scale: 0.92))
+                    }
+                }
+                .motion(.pop, value: viewModel.hint)
             }
             .transition(.popIn(reduceMotion: reduceMotion, scale: 0.95))
         case .active:

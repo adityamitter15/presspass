@@ -197,6 +197,8 @@ struct RecorderSetupView: View {
                     .font(.subheadline)
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+            case .workout:
+                EmptyView()
             }
         }
         .disabled(viewModel.isRecording)

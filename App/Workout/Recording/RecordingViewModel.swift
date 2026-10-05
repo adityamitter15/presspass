@@ -64,6 +64,8 @@ struct RecordingTotals: Equatable {
                 negatives += 1
             case .pose:
                 poses += 1
+            case .workout:
+                break
             }
         }
     }
@@ -415,7 +417,7 @@ final class RecordingViewModel: ObservableObject {
             storedReps = trueReps
         case .negative:
             storedReps = 0
-        case .pose:
+        case .pose, .workout:
             storedReps = nil
         }
 
@@ -508,6 +510,8 @@ final class RecordingViewModel: ObservableObject {
             return "Saved \(subject): negative take, app counted \(appReps)"
         case .pose:
             return "Saved \(subject): held pose"
+        case .workout:
+            return "Saved \(subject): app workout"
         }
     }
 

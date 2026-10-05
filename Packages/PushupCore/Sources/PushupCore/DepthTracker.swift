@@ -7,7 +7,7 @@ import Foundation
 /// Purely presentational. It reads `PipelineOutput` and never feeds anything
 /// back, so it cannot change what `RepCounter` counts.
 public struct DepthTracker {
-    public struct Config: Equatable {
+    public struct Config: Equatable, Codable {
         /// Mean elbow angle at or above which the arms count as straight
         /// (depth 0). Defaults to the heuristic classifier's "up" threshold.
         public var upElbowDegrees: Float
@@ -38,6 +38,19 @@ public struct DepthTracker {
             self.smoothing = smoothing
             self.shallowMinDepth = shallowMinDepth
             self.returnDepth = returnDepth
+        }
+
+        /// A missing key decodes to its default, like the other configs.
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let defaults = Config()
+            self.init(
+                upElbowDegrees: try container.decodeIfPresent(Float.self, forKey: .upElbowDegrees) ?? defaults.upElbowDegrees,
+                downElbowDegrees: try container.decodeIfPresent(Float.self, forKey: .downElbowDegrees) ?? defaults.downElbowDegrees,
+                smoothing: try container.decodeIfPresent(Float.self, forKey: .smoothing) ?? defaults.smoothing,
+                shallowMinDepth: try container.decodeIfPresent(Float.self, forKey: .shallowMinDepth) ?? defaults.shallowMinDepth,
+                returnDepth: try container.decodeIfPresent(Float.self, forKey: .returnDepth) ?? defaults.returnDepth
+            )
         }
     }
 

@@ -26,7 +26,7 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 | `schema` | integer | Always `2`. |
 | `id` | string | UUID of the take. |
 | `createdAt` | string | ISO 8601 in UTC, whole seconds, for example `2026-07-04T09:30:15Z`. Taken when recording started. |
-| `kind` | string | `set`, `negative` or `pose`. See "Ground truth". |
+| `kind` | string | `set`, `negative`, `pose` or `workout`. See "Ground truth" and "Workout logs". |
 | `trueReps` | integer, optional | Human-entered count of valid reps. Present for `set` and `negative`, absent for `pose`. |
 | `poseLabel` | string, optional | `up`, `down` or `not_pushup`. Present only for `pose`. |
 | `subject` | string | Anonymous subject id such as `S01`. Never a name. |
@@ -45,6 +45,8 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 - `set`: a pushup set. `trueReps` is the number of valid reps the person did, typed in by them after stopping, using the definition of a valid rep in `docs/recording-protocol.md`. It can be `0` (for example a set of half reps only).
 - `negative`: a clip in which nothing should count, such as holding a plank or stretching. `trueReps` is always `0`.
 - `pose`: a held pose with no repetitions. There is no rep count, so `trueReps` is absent. `poseLabel` says which pose was held (`up`, `down`, `not_pushup`), matching the labels the pose classifier produces.
+
+- `workout`: an ordinary workout in the debug app (the Start button on the Workout tab), written by the flight recorder, not by the data recorder. There is no human count: `trueReps` is absent and `live` holds what the app counted. It is never labelled and never part of the dataset (see "Workout logs").
 
 `trueReps` is typed in by the person after stopping, and the field always starts empty: it is never filled in from the app's count. Whether that person could see the app's count while recording depends on the take: see `countVisible`. When it is `true`, or absent in an older file, the count was on screen while recording, and the count should be checked again from the video by someone who has not seen the app's count. The recorder never shows the app's count while the number is typed; it shows it only after the take is saved.
 
@@ -262,3 +264,14 @@ A minimal document (the landmark arrays are shortened here for reading; real one
   }
 }
 ```
+
+## Workout logs
+
+Debug builds also write the raw frames of every workout started with the Start button, so a fault seen on a phone can be replayed through `WorkoutSessionEngine` and turned into a test. A log is a normal schema 2 file with `kind` set to `workout`:
+
+- File name: `workout_<yyyyMMdd-HHmmss>_<first 8 characters of id, lowercased>.json`, time in UTC, in `Documents/WorkoutLogs/` (the recorder's takes are in `Documents/Recordings/`).
+- `trueReps` is absent and `live` is what the engine counted (`reps`, `rejectedReps`, `classifier`).
+- `subject` is `app`, `tags` are the defaults, and `notes` lists the values of the session config that differ from `SessionConfig.default`, one `key = value` per line (empty when it is the default).
+- No `video` and no `motion`. Frames are the same compact form as above. A log stops at 300 seconds of frames, and only the 20 newest logs are kept.
+
+The data recorder does not list these files and cannot delete them (`isRecordingFileName` rejects the name), `scripts/pull_recordings.sh` copies them to `private/workout-logs/` and never into `data/sessions/`, and the report leaves any take of this kind out of every metric. To replay one, copy it into a directory of its own and run `pushup-eval replay --mode session`.

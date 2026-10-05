@@ -58,7 +58,9 @@ def build_section(takes: Sequence[Mapping], sittings: Mapping[str, str], pipelin
     """All tables for one set of takes (everything, or one split)."""
     replay_classifier = pipeline.get("classifier")
     is_default = pipeline.get("isDefaultConfig")
-    if is_default is True:
+    if pipeline.get("mode") == "session":
+        fidelity = {"reported": False, "note": "omitted: a session-mode replay is not the counting path the older recordings were made with"}
+    elif is_default is True:
         fidelity = {"reported": True, **metrics.replay_fidelity(takes, replay_classifier)}
     else:
         reason = "non-default config used for the replay" if is_default is False else "default config not confirmed"
@@ -80,6 +82,7 @@ def build_section(takes: Sequence[Mapping], sittings: Mapping[str, str], pipelin
             "intervals": metrics.negative_intervals(takes, sittings),
         },
         "fidelity": fidelity,
+        "gates": metrics.gate_tables(takes),
         "conditions": metrics.condition_tables(takes, alpha),
         "worst_takes": metrics.worst_takes(takes),
     }
@@ -107,7 +110,10 @@ def build_results(
     alpha: float = metrics.ALPHA,
 ) -> tuple[dict, dict[str, list[Mapping]]]:
     """Compute ``results.json`` content and the takes behind each section."""
-    takes = predictions["sessions"]
+    all_takes = predictions["sessions"]
+    # Workout logs from the app have no human count: they take no part in any metric.
+    takes = metrics.evaluation_takes(all_takes)
+    ignored = len(all_takes) - len(takes)
     sittings = assign_sittings(takes)
     pipeline = predictions.get("pipeline", {})
 
@@ -125,6 +131,7 @@ def build_results(
         "pipeline": pipeline,
         "n_takes": count_kinds(takes),
         "skipped_files": predictions.get("skipped", []),
+        "ignored_workout_takes": ignored,
         "splits_given": splits is not None,
         "unassigned_takes": unassigned,
         "bootstrap": {
@@ -164,6 +171,7 @@ def render_markdown(results: Mapping) -> str:
     lines += [
         f"- Classifier: {pipe.get('classifier', 'unknown')}, feature version {pipe.get('featureVersion', 'unknown')}"
         + (f", model {pipe['model']}" if pipe.get("model") else ""),
+        "- Replay mode: " + ("session (the workout session engine)" if pipe.get("mode") == "session" else "raw (counting pipeline only)"),
         "- Config: " + (
             "default" if pipe.get("isDefaultConfig") is True
             else "NON-DEFAULT, see results.json" if pipe.get("isDefaultConfig") is False
@@ -171,6 +179,7 @@ def render_markdown(results: Mapping) -> str:
         ),
         f"- Takes: {kinds['total']} ({kinds['set']} sets, {kinds['negative']} negative clips, {kinds['pose']} held poses)",
         f"- Skipped files: {len(results['skipped_files'])}",
+        f"- Workout logs ignored: {results.get('ignored_workout_takes', 0)}",
         f"- Intervals: 95 percent percentile cluster bootstrap over sittings, {results['bootstrap']['resamples']} "
         f"resamples, seed {results['bootstrap']['seed']}",
     ]
@@ -268,6 +277,23 @@ def render_section(name: str, section: Mapping, alpha: float, synthetic: bool) -
             "",
         ]
 
+    # Gates (session-mode replays only).
+    gates = section.get("gates")
+    if gates:
+        lines += [
+            "### Frames rejected by each gate",
+            "",
+            "First failing check per frame, in the order the engine checks them. Frames in takes that never started are included.",
+            "",
+            "| Group | Takes | Started | Frames | No body | Low confidence | Not in posture | Not horizontal | Hands moving | Passed |",
+            "|---|---|---|---|---|---|---|---|---|---|",
+        ]
+        for label, key in (("Valid sets", "valid_sets"), ("Cheat sets", "cheat_sets"), ("Negative clips", "negatives")):
+            row = gates[key]
+            cells = " | ".join(gate_cell(row, k) for k in metrics.GATE_KEYS)
+            lines.append(f"| {label} | {row['n_takes']} | {row['n_started']} | {row['frames']} | {cells} |")
+        lines.append("")
+
     # Conditions.
     lines += ["### Valid sets by condition", ""]
     for key, groups in section["conditions"].items():
@@ -305,6 +331,13 @@ def render_section(name: str, section: Mapping, alpha: float, synthetic: bool) -
         lines.append(f"![{base}]({figure_name(base, name)})")
     lines.append("")
     return lines
+
+
+def gate_cell(row: Mapping, key: str) -> str:
+    """A frame count with its share of the group's frames."""
+    frames = row["frames"]
+    share = f" ({100 * row[key] / frames:.1f}%)" if frames else ""
+    return f"{row[key]}{share}"
 
 
 def cheat_row(kind: str, row: Mapping) -> str:

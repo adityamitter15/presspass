@@ -10,22 +10,51 @@ public enum FeaturesCSV {
         let columns = ["session_id", "frame", "t", "has_features"]
             + features
             + ["posture_valid", "joints_confident", "heuristic_label", "heuristic_confidence"]
+            + sessionColumns
         return columns.joined(separator: ",")
     }
 
+    /// Appended after the original columns: the session engine's per-frame
+    /// diagnostics, for choosing thresholds.
+    public static let sessionColumns = [
+        "torso_ratio", "wrist_motion_ratio", "raw_depth", "gate_failure", "session_phase", "session_reps",
+    ]
+
     /// Header plus one row per frame, newline terminated. Each session runs
     /// through a fresh pipeline built from `config`, so the heuristic label
-    /// columns are exactly what the app would have shown.
-    public static func render(sessions: [LoadedSession], config: PipelineConfig) -> String {
+    /// columns are exactly what the app would have shown. The session columns
+    /// come from a fresh `WorkoutSessionEngine` per session, built from
+    /// `sessionConfig`, or from `SessionConfig(pipeline: config)` (the default
+    /// session config) when that is nil.
+    public static func render(
+        sessions: [LoadedSession],
+        config: PipelineConfig,
+        sessionConfig: SessionConfig? = nil
+    ) -> String {
+        let engineConfig = sessionConfig ?? SessionConfig(pipeline: config)
         var lines = [header]
         for entry in sessions {
             let pipeline = config.makePipeline()
+            let engine = WorkoutSessionEngine(config: engineConfig)
             for (index, frame) in entry.session.poseFrames().enumerated() {
                 let output = pipeline.process(frame)
-                lines.append(row(sessionID: entry.session.id, frame: index, time: frame.timestamp, output: output))
+                let session = engine.process(frame)
+                let base = row(sessionID: entry.session.id, frame: index, time: frame.timestamp, output: output)
+                lines.append(base + "," + sessionCells(session).joined(separator: ","))
             }
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func sessionCells(_ output: WorkoutSessionEngine.Output) -> [String] {
+        [
+            output.torsoRatio.map { String($0) } ?? "",
+            output.wristMotionRatio.map { String($0) } ?? "",
+            output.rawDepth.map { String($0) } ?? "",
+            output.gateFailure?.rawValue ?? "",
+            output.phase.name,
+            String(output.reps),
+        ]
     }
 
     static func row(sessionID: String, frame: Int, time: TimeInterval, output: PipelineOutput) -> String {

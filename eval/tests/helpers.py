@@ -26,6 +26,8 @@ def make_take(
     clothing: str = "fitted",
     tempo: str = "normal",
     variant: str = "standard",
+    gate_counts: dict | None = None,
+    started: bool | None = None,
 ) -> dict:
     take = {
         "id": name,
@@ -53,6 +55,10 @@ def make_take(
         take["trueReps"] = true
     if live is not None:
         take["live"] = live
+    if gate_counts is not None:
+        take["gateCounts"] = gate_counts
+    if started is not None:
+        take["started"] = started
     return take
 
 

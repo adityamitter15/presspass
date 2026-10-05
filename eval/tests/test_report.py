@@ -159,3 +159,108 @@ def test_no_miscounted_set_gives_a_line_and_an_empty_list(tmp_path):
     text = (out / "report.md").read_text()
     assert "No valid set was miscounted." in text
     assert "| File | True | Predicted | Tags |" not in text
+
+
+# ------------------------------------------------------------ workout logs and gates
+
+def gates(**counts):
+    base = {"noBody": 0, "lowConfidence": 0, "notInPosture": 0, "notHorizontal": 0, "handsMoving": 0, "passed": 0}
+    base.update(counts)
+    return base
+
+
+def session_predictions():
+    takes = [
+        make_take("v1", 5, 5, started=True, gate_counts=gates(passed=300, lowConfidence=20, notHorizontal=80)),
+        make_take("v2", 6, 0, created="2026-07-04T09:30:00Z", started=False, gate_counts=gates(notHorizontal=400)),
+        make_take("c1", 0, 0, created="2026-07-04T10:00:00Z", cheat="arm_wave", started=False,
+                  gate_counts=gates(notHorizontal=250, handsMoving=150)),
+        make_take("n1", 0, 0, created="2026-07-04T10:30:00Z", kind="negative", started=False,
+                  gate_counts=gates(noBody=60, notInPosture=40)),
+    ]
+    pipeline = {"classifier": "heuristic", "featureVersion": "v1", "isDefaultConfig": True, "config": {}, "mode": "session"}
+    return make_predictions(takes, pipeline)
+
+
+def test_workout_takes_are_in_no_metric(tmp_path):
+    base = real_predictions()
+    plain, _ = report.build_results(base)
+
+    noisy = real_predictions()
+    noisy["sessions"] += [
+        make_take("w1", None, 9, kind="workout", subject="app", created="2026-07-04T09:05:00Z",
+                  gate_counts=gates(passed=100), started=True),
+        make_take("w2", None, 3, kind="workout", subject="app", created="2026-07-06T09:00:00Z", duration=120),
+    ]
+    with_workouts, groups = report.build_results(noisy)
+
+    assert with_workouts["ignored_workout_takes"] == 2
+    assert plain["ignored_workout_takes"] == 0
+    assert with_workouts["n_takes"] == plain["n_takes"] == {"set": 2, "negative": 0, "pose": 0, "total": 2}
+    assert with_workouts["sections"] == plain["sections"]
+    assert all(t["kind"] != "workout" for t in groups["all"])
+    # Not even a sitting is made for the app's own subject.
+    assert with_workouts["sections"]["all"]["n_sittings"] == plain["sections"]["all"]["n_sittings"]
+
+
+def test_workout_takes_do_not_reach_the_markdown_tables(tmp_path):
+    predictions = real_predictions()
+    predictions["sessions"].append(make_take("w1", None, 9, kind="workout", subject="app", created="2026-07-04T09:05:00Z"))
+    out = run_report(tmp_path, predictions)
+    text = (out / "report.md").read_text()
+    assert "w1.json" not in text
+    assert "- Workout logs ignored: 1" in text
+
+
+def test_make_splits_ignores_workout_takes(tmp_path):
+    from pushup_report import make_splits
+
+    predictions = real_predictions()
+    predictions["sessions"].append(make_take("w1", None, 9, kind="workout", subject="app", created="2026-07-04T09:05:00Z"))
+    source = tmp_path / "p.json"
+    source.write_text(json.dumps(predictions))
+    assert make_splits.main(["--predictions", str(source), "--out", str(tmp_path / "s.json")]) == 0
+    splits = json.loads((tmp_path / "s.json").read_text())
+    assert not any(key.startswith("app") for key in splits)
+
+
+def test_gate_table_is_built_for_session_mode(tmp_path):
+    results, _ = report.build_results(session_predictions())
+    gate_section = results["sections"]["all"]["gates"]
+    assert gate_section["valid_sets"] == {
+        "n_takes": 2, "n_started": 1, "noBody": 0, "lowConfidence": 20, "notInPosture": 0,
+        "notHorizontal": 480, "handsMoving": 0, "passed": 300, "frames": 800,
+    }
+    assert gate_section["cheat_sets"]["handsMoving"] == 150
+    assert gate_section["cheat_sets"]["frames"] == 400
+    assert gate_section["negatives"]["noBody"] == 60 and gate_section["negatives"]["notInPosture"] == 40
+
+    out = run_report(tmp_path, session_predictions())
+    text = (out / "report.md").read_text()
+    assert "### Frames rejected by each gate" in text
+    assert "| Valid sets | 2 | 1 | 800 | 0 (0.0%) | 20 (2.5%) | 0 (0.0%) | 480 (60.0%) | 0 (0.0%) | 300 (37.5%) |" in text
+    assert "Replay mode: session" in text
+    assert chr(0x2014) not in text
+
+
+def test_session_mode_omits_fidelity_and_keeps_every_other_table():
+    results, _ = report.build_results(session_predictions())
+    section = results["sections"]["all"]
+    assert section["fidelity"]["reported"] is False
+    assert section["valid_sets"]["metrics"]["n_takes"] == 2
+    assert section["valid_sets"]["metrics"]["exact_count_accuracy"] == pytest.approx(0.5)
+
+
+def test_raw_mode_has_no_gate_table(tmp_path):
+    results, _ = report.build_results(real_predictions())
+    assert results["sections"]["all"]["gates"] is None
+    text = (run_report(tmp_path, real_predictions()) / "report.md").read_text()
+    assert "Frames rejected by each gate" not in text
+    assert "Replay mode: raw" in text
+
+
+def test_gate_table_tolerates_takes_without_counts():
+    predictions = session_predictions()
+    predictions["sessions"].append(make_take("v3", 4, 4, created="2026-07-04T11:00:00Z"))
+    results, _ = report.build_results(predictions)
+    assert results["sections"]["all"]["gates"]["valid_sets"]["n_takes"] == 2

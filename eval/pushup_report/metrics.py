@@ -43,6 +43,16 @@ def is_negative(take: Take) -> bool:
     return take.get("kind") == "negative"
 
 
+#: ``kind`` of a take the app wrote as an ordinary workout (the flight recorder). It has no
+#: human count and is never part of the evaluation: no metric may see it.
+IGNORED_KINDS = ("workout",)
+
+
+def evaluation_takes(takes: Sequence[Take]) -> list[Take]:
+    """The takes that belong to the evaluation: everything except ``kind == "workout"``."""
+    return [t for t in takes if t.get("kind") not in IGNORED_KINDS]
+
+
 def valid_sets(takes: Sequence[Take]) -> list[Take]:
     return [t for t in takes if is_valid_set(t)]
 
@@ -292,3 +302,37 @@ def worst_takes(takes: Sequence[Take], n: int = 10) -> list[dict]:
         }
         for t in ranked[:n]
     ]
+
+
+# ------------------------------------------------------------------ gates
+
+#: Keys of ``gateCounts`` in a session-mode replay, in the engine's order of checking.
+GATE_KEYS = ("noBody", "lowConfidence", "notInPosture", "notHorizontal", "handsMoving", "passed")
+
+
+def gate_tables(takes: Sequence[Take]) -> dict | None:
+    """Frames rejected by each session gate, summed over valid sets, cheat sets and negatives.
+
+    Only takes that carry ``gateCounts`` (a session-mode replay) are used. Returns ``None`` when
+    no take has it, so a raw-mode report has no such table. Per group: ``n_takes``, ``n_started``
+    (takes with ``started`` true), ``frames`` and one frame count per key of ``GATE_KEYS``.
+    """
+    if not any("gateCounts" in t for t in takes):
+        return None
+    groups = {
+        "valid_sets": valid_sets(takes),
+        "cheat_sets": cheat_sets(takes),
+        "negatives": negatives(takes),
+    }
+    out: dict = {}
+    for name, group in groups.items():
+        with_counts = [t for t in group if "gateCounts" in t]
+        row: dict = {
+            "n_takes": len(with_counts),
+            "n_started": sum(1 for t in with_counts if t.get("started")),
+        }
+        for key in GATE_KEYS:
+            row[key] = sum(t["gateCounts"].get(key, 0) for t in with_counts)
+        row["frames"] = sum(row[key] for key in GATE_KEYS)
+        out[name] = row
+    return out

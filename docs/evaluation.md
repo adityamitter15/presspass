@@ -7,17 +7,18 @@ Offline evaluation of the pushup counter on recorded sessions. There are no real
 1. `pushup-eval` (a Swift command-line tool in `Packages/PushupCore`) loads recorded sessions (`docs/data-format.md`), replays every frame through `PushupPipeline` and writes the counts to `predictions.json`.
 2. A small Python package in `eval/` (`pushup_report`) reads `predictions.json` and writes metrics, tables and figures.
 
-Replay runs the shipped Swift pipeline: the same `PushupPipeline`, `BlazePoseMapping`, `PushupFeatureExtractor`, classifier and `RepCounter` that the app runs. There is no separate offline implementation to drift from the app. The Python side never re-implements the landmark mapping or the features; it only reads the tool's output. For model training, `pushup-eval features` writes the per-frame features as CSV, so Python gets them from the same Swift code.
+Replay has two modes, see "Replay modes". Both run shipped Swift code: the same `PushupPipeline`, `BlazePoseMapping`, `PushupFeatureExtractor`, classifier and `RepCounter` that the app runs. In `session` mode the whole workout logic (start hold, posture gates, finishing) is `WorkoutSessionEngine`, the one class the app also runs. There is no separate offline implementation to drift from the app. The Python side never re-implements the landmark mapping or the features; it only reads the tool's output. For model training, `pushup-eval features` writes the per-frame features as CSV, so Python gets them from the same Swift code.
 
 ## Running it
 
 On recorded data (put the JSON files in `data/sessions/`):
 
 ```
-scripts/eval.sh [data-dir] [out-dir]     # defaults: data/sessions and results
+scripts/eval.sh [data-dir] [out-dir] [mode]     # defaults: data/sessions, results, raw
+MODE=session scripts/eval.sh                    # the mode can also come from the environment
 ```
 
-It builds the tool in release mode, replays the sessions, writes dev/test splits and writes the report into the output directory. It exits 1 with a message if the data directory holds no session files.
+`mode` is `raw` or `session` (a third argument wins over `MODE`). A session-mode run writes to `results-session` unless an output directory is given, so the two runs can be compared side by side. It builds the tool in release mode, replays the sessions, writes dev/test splits and writes the report into the output directory. It exits 1 with a message if the data directory holds no session files.
 
 As a smoke test on synthetic data (writes only into a temporary directory):
 
@@ -30,7 +31,8 @@ The pieces, if you want to run them by hand:
 ```
 swift build -c release --package-path Packages/PushupCore --product pushup-eval
 pushup-eval replay   --data <dir> --out <predictions.json> [--config <config.json>] [--model <compiled .mlmodelc path>]
-pushup-eval features --data <dir> --out <features.csv>     [--config <config.json>]
+                     [--mode raw|session] [--session-config <session.json>]
+pushup-eval features --data <dir> --out <features.csv>     [--config <config.json>] [--session-config <session.json>]
 pushup-eval synth    --out <dir> [--seed <int>]
 uv run --project eval python -m pushup_report.make_splits --predictions <json> --out <splits.json>
 uv run --project eval python -m pushup_report.report --predictions <json> --out <dir> [--splits <json>] [--title <str>]
@@ -46,6 +48,40 @@ Exit codes of `pushup-eval`: 0 success, 1 runtime failure, 2 usage error.
 - Per session the output records `predictedReps`, `rejectedReps`, `repTimes` (the frame time at which each counted rep was registered), the frame count, duration, mean frame rate, and `frameCounts`: how many frames had no body (`noBody`), failed the feature gate (`featuresNil`), failed the joint confidence check (`lowConfidence`), failed the posture gate (`notInPosture`) or reached the state machine (`processed`). The five add up to the frame count.
 - The output has no wall-clock data: the same inputs give the same bytes. The `pipeline` block records the classifier, the feature version, the full config and `isDefaultConfig`.
 - `--config` takes a JSON file with the keys `repCounter` and `heuristic`, each holding any of that config's thresholds (see `RepCounter.Config` and `HeuristicPoseClassifier.Config`). A missing key keeps its default, so `{"repCounter": {"minPhaseDuration": 0.7}}` overrides one threshold.
+
+### Replay modes
+
+`--mode raw` (the default) feeds every frame to a bare `PushupPipeline`, as above. Its output is byte-for-byte what it was before session mode existed.
+
+`--mode session` runs each take through a fresh `WorkoutSessionEngine`, the class the app drives. Nothing is counted until the engine has started: a held top position (arms straight, planted hands, horizontal body) for `startHold` seconds. Frames that fail a gate are not fed to the counter, and the set ends when the person leaves the position. The per-take output keeps the raw fields, where `predictedReps` and `repTimes` are the engine's, and adds:
+
+- `started`: whether the engine ever left positioning;
+- `startTime`: the frame time at which the last session began counting, or absent when it never started;
+- `endPhase`: `positioning`, `active`, `finishing` or `finished` after the last frame;
+- `gateCounts`: frames by the engine's first failing check, `noBody`, `lowConfidence`, `notInPosture`, `notHorizontal`, `handsMoving`, plus `passed` (no check failed). The six add up to `frames`. `frameCounts` is still written, with the same buckets as in raw mode (how each frame looks before the new gates).
+
+The top-level `pipeline` block then has `mode: "session"` and the full `sessionConfig` (its `pipeline` is also written as `config`); `isDefaultConfig` is true when the session config equals `SessionConfig.default`. In raw mode neither key is written.
+
+`--session-config` takes a JSON file with any of the keys of `SessionConfig` (`startHold`, `startRequiresStraightArms`, `straightArmsMaxDepth`, `plantedHandsGate`, `plantedHandsWindow`, `plantedHandsMaxMotion`, `horizontalBodyGate`, `horizontalBodyMaxTorsoRatio`, `autoFinish`, `leaveHandsMotion`, `leaveHold`, `idleBeforeFinishing`, `finishingCountdown`, `resumeHold`, `requiresRepToAutoFinish`, `imageAspect`, and the nested `pipeline` and `depth` blocks). A missing key keeps its default. It needs `--mode session`. If `--config` is also given in session mode, it replaces the `pipeline` block of the session config. `SessionConfig.legacy` (no planted-hands gate, no horizontal-body gate, no straight-arms requirement) is the behaviour from before the engine existed: `{"plantedHandsGate": false, "horizontalBodyGate": false, "startRequiresStraightArms": false}` is that config as a file.
+
+All thresholds are first guesses and are meant to be tuned on real recordings. `pushup-eval features` exposes the raw values to tune them against.
+
+### Features columns
+
+`pushup-eval features` writes one row per frame. The first columns are unchanged: `session_id`, `frame`, `t`, `has_features`, `f0` to `f24`, `posture_valid`, `joints_confident`, `heuristic_label`, `heuristic_confidence`. Six columns follow, computed by a fresh `WorkoutSessionEngine` per session (default session config, or `--session-config`):
+
+| Column | Meaning |
+|---|---|
+| `torso_ratio` | torso length divided by shoulder width, in isotropic image coordinates (x times the image aspect, 9/16 by default). Empty when a joint is missing. |
+| `wrist_motion_ratio` | over the last `plantedHandsWindow` seconds, the larger of the two wrists' largest distance from its median position, in median shoulder widths. Empty until the window holds 0.3 s of frames or when a wrist is missing. |
+| `raw_depth` | unsmoothed depth, 0 (arms straight) to 1 (elbows at the down threshold), from the elbow angle. Empty when the frame has no features. |
+| `gate_failure` | the first failing check on this frame, or empty when the frame is a valid planted posture. |
+| `session_phase` | the engine's phase after this frame. |
+| `session_reps` | the engine's rep count after this frame. |
+
+### Report
+
+The report works on the output of either mode, using fields that exist in both. A take of kind `workout` (the app's own flight-recorder logs, `docs/data-format.md`) is dropped before any metric, split or sitting is computed, and the report says how many it ignored. When the takes carry `gateCounts`, the report adds a table, "Frames rejected by each gate", with the frames each check rejected over the valid sets, the cheat sets and the negative clips. The replay-fidelity line is omitted for a session-mode replay.
 
 ## Definitions
 
@@ -122,4 +158,4 @@ Written to the output directory:
 
 ## Synthetic sessions
 
-`pushup-eval synth` writes twelve sessions in two sittings: clean sets with 3 to 15 reps at slow, normal and fast tempo, half reps, an arm wave, a mixed set and negative clips. They are built from the same geometric pose generator the unit tests use (`PushupSynth`), carry subject `SYN` and the note `synthetic`, and are deterministic for a given `--seed` (default 1). They contain no real human motion, so the counts they produce are a check that the tooling works, not a measure of the counter.
+`pushup-eval synth` writes twelve sessions in two sittings: clean sets with 3 to 15 reps at slow, normal and fast tempo, half reps, an arm wave, a mixed set and negative clips. They are built from the same geometric pose generator the unit tests use (`PushupSynth`), carry subject `SYN` and the note `synthetic`, and are deterministic for a given `--seed` (default 1). They contain no real human motion, so the counts they produce are a check that the tooling works, not a measure of the counter. The sessions are a tall body seen head-on (torso ratio about 3), so in session mode with the default config the horizontal-body gate rejects them and nothing is counted; with `SessionConfig.legacy` they count as in raw mode.

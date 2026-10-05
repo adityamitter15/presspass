@@ -3,8 +3,8 @@ import PushupCore
 
 /// A parsed command line.
 public enum Command: Equatable {
-    case replay(data: String, out: String, config: String?, model: String?)
-    case features(data: String, out: String, config: String?)
+    case replay(data: String, out: String, config: String?, model: String?, mode: ReplayMode, sessionConfig: String?)
+    case features(data: String, out: String, config: String?, sessionConfig: String?)
     case synth(out: String, seed: UInt64)
     case synthOne(name: String, out: String, seed: UInt64)
     case help
@@ -19,12 +19,18 @@ public enum CLI {
     public static let usage = """
     usage:
       pushup-eval replay   --data <dir> --out <predictions.json> [--config <config.json>] [--model <compiled .mlmodelc path>]
-      pushup-eval features --data <dir> --out <features.csv>     [--config <config.json>]
+                           [--mode raw|session] [--session-config <session.json>]
+      pushup-eval features --data <dir> --out <features.csv>     [--config <config.json>] [--session-config <session.json>]
       pushup-eval synth    --out <dir> [--seed <int>] [--only <name>]
       pushup-eval --help
 
-    replay    run every recorded session in <dir> through the shipped pipeline and write the counts as JSON
-    features  write one CSV row per frame with the 25 features and the heuristic label
+    replay    run every recorded session in <dir> and write the counts as JSON. --mode raw (the default) feeds a
+              bare counting pipeline. --mode session runs each take through the workout session engine the app
+              uses (start hold, gates, finishing), adding started, startTime, endPhase and gateCounts per take.
+              --session-config takes a JSON file of SessionConfig keys and needs --mode session. In session mode
+              --config, if given, replaces the config's pipeline block.
+    features  write one CSV row per frame with the 25 features and the heuristic label, then the session
+              engine's torso_ratio, wrist_motion_ratio, raw_depth, gate_failure, session_phase, session_reps
     synth     write a small synthetic dataset (clearly labelled synthetic) for exercising the tools;
               with --only, write just one named session (clean-8: one clean set of 8 reps)
 
@@ -48,12 +54,25 @@ public enum CLI {
 
         switch first {
         case "replay":
-            return options(rest, required: ["data", "out"], optional: ["config", "model"]).map {
-                .replay(data: $0["data"]!, out: $0["out"]!, config: $0["config"], model: $0["model"])
+            return options(rest, required: ["data", "out"], optional: ["config", "model", "mode", "session-config"]).flatMap { values in
+                var mode = ReplayMode.raw
+                if let text = values["mode"] {
+                    guard let parsed = ReplayMode(rawValue: text) else {
+                        return .failure(UsageError(message: "--mode must be raw or session, got '\(text)'"))
+                    }
+                    mode = parsed
+                }
+                if values["session-config"] != nil, mode != .session {
+                    return .failure(UsageError(message: "--session-config needs --mode session"))
+                }
+                return .success(.replay(
+                    data: values["data"]!, out: values["out"]!, config: values["config"], model: values["model"],
+                    mode: mode, sessionConfig: values["session-config"]
+                ))
             }
         case "features":
-            return options(rest, required: ["data", "out"], optional: ["config"]).map {
-                .features(data: $0["data"]!, out: $0["out"]!, config: $0["config"])
+            return options(rest, required: ["data", "out"], optional: ["config", "session-config"]).map {
+                .features(data: $0["data"]!, out: $0["out"]!, config: $0["config"], sessionConfig: $0["session-config"])
             }
         case "synth":
             return options(rest, required: ["out"], optional: ["seed", "only"]).flatMap { values in
@@ -126,19 +145,26 @@ public enum CLI {
         case .help:
             out(usage)
 
-        case .replay(let data, let outPath, let configPath, let modelPath):
+        case .replay(let data, let outPath, let configPath, let modelPath, let mode, let sessionConfigPath):
             let config = try loadConfig(configPath)
             let source: ClassifierSource = modelPath.map { .coreML(modelURL: URL(fileURLWithPath: $0)) } ?? .heuristic
-            let result = try Replay.run(directory: URL(fileURLWithPath: data), config: config, source: source)
+            let sessionConfig = mode == .session
+                ? try loadSessionConfig(sessionConfigPath, pipeline: configPath == nil ? nil : config)
+                : nil
+            let result = try Replay.run(
+                directory: URL(fileURLWithPath: data), config: config, source: source,
+                mode: mode, sessionConfig: sessionConfig
+            )
             warnSkipped(result.skipped, err: err)
             try write(try Replay.encode(result), to: outPath)
             out("replayed \(result.sessions.count) sessions (\(result.skipped.count) skipped) into \(outPath)")
 
-        case .features(let data, let outPath, let configPath):
+        case .features(let data, let outPath, let configPath, let sessionConfigPath):
             let config = try loadConfig(configPath)
+            let sessionConfig = try loadSessionConfig(sessionConfigPath, pipeline: configPath == nil ? nil : config)
             let loaded = try SessionLoader.load(directory: URL(fileURLWithPath: data))
             warnSkipped(loaded.skipped, err: err)
-            let csv = FeaturesCSV.render(sessions: loaded.sessions, config: config)
+            let csv = FeaturesCSV.render(sessions: loaded.sessions, config: config, sessionConfig: sessionConfig)
             try write(Data(csv.utf8), to: outPath)
             out("wrote features for \(loaded.sessions.count) sessions into \(outPath)")
 
@@ -176,6 +202,21 @@ public enum CLI {
         } catch {
             throw EvalError.configUnreadable(path, SessionLoader.describe(error))
         }
+    }
+
+    /// The session config from a file (the default when there is no path). A
+    /// `pipeline` passed in (from `--config`) replaces the file's `pipeline` block.
+    static func loadSessionConfig(_ path: String?, pipeline: PipelineConfig? = nil) throws -> SessionConfig {
+        var config = SessionConfig.default
+        if let path {
+            do {
+                config = try JSONDecoder().decode(SessionConfig.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+            } catch {
+                throw EvalError.configUnreadable(path, SessionLoader.describe(error))
+            }
+        }
+        if let pipeline { config.pipeline = pipeline }
+        return config
     }
 
     private static func warnSkipped(_ skipped: [SkippedFile], err: (String) -> Void) {

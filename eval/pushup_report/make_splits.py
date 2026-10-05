@@ -18,6 +18,7 @@ import json
 import sys
 from pathlib import Path
 
+from .metrics import evaluation_takes
 from .sittings import assign_sittings, assign_splits
 
 
@@ -27,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True, help="splits.json to write")
     args = parser.parse_args(argv)
 
-    takes = json.loads(Path(args.predictions).read_text())["sessions"]
+    takes = evaluation_takes(json.loads(Path(args.predictions).read_text())["sessions"])
     sittings = assign_sittings(takes)
     splits, warnings = assign_splits(takes, sittings)
     for message in warnings:

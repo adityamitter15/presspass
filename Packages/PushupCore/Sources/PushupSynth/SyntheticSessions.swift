@@ -58,9 +58,10 @@ public enum SyntheticSessions {
         conditions: Conditions = Conditions(),
         createdAt: Date = defaultCreatedAt,
         seed: UInt64 = 1,
-        noBodySeconds: Double = 0
+        noBodySeconds: Double = 0,
+        options: SyntheticPose.Options = SyntheticPose.Options()
     ) -> RecordedSession {
-        let poses = SyntheticPose.repSequence(reps: reps, secondsPerRep: secondsPerRep(for: tempo), fps: fps)
+        let poses = SyntheticPose.repSequence(reps: reps, secondsPerRep: secondsPerRep(for: tempo), fps: fps, options)
         return build(
             kind: .set, trueReps: reps,
             tags: tags(conditions, tempo: tempo, cheat: .none),

@@ -14,8 +14,9 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 - Absent optional values are omitted from the JSON rather than written as `null`. A reader should treat a missing key and `null` the same way.
 - Size is roughly 45 to 70 kB per recorded second at 30 fps, so a take at the 300 second limit is about 14 to 20 MB. Motion adds roughly 10 to 15 kB per recorded second (100 samples of 10 numbers).
 - `motion` and `video` were added without changing the schema number. A file without them is still a valid schema 2 file and loads with no motion and no video.
-- `countVisible` and `editedAt` were added without changing the schema number. Files without them still load; a missing key and `null` mean the same as "unknown" and "never edited". The `knuckle` variant is new; a reader of the older enum would not know it.
-- Labels can be corrected after saving (the true count, subject, variant, tempo, `cheat`, lighting, distance, clothing and notes). Saving an edit rewrites the same file atomically under the same name, changes only those fields and sets `editedAt`. The kind, `id`, `createdAt`, `device`, `live`, `frames`, `motion`, `video` and `countVisible` are written back exactly as they were.
+- `countVisible` and `editedAt` were added without changing the schema number. Files without them still load; a missing key and `null` mean the same as "unknown" and "never edited". The `knuckle` and `knuckle_knee` variants are new; a reader of the older enum would not know them.
+- `hands`, `support` and `width` (under `tags`) were added without changing the schema number. They are absent in files recorded before this change, and a reader should then infer them from `variant`, see "Tags".
+- Labels can be corrected after saving (the true count, subject, hands, legs, width, tempo, `cheat`, lighting, distance, clothing and notes). Saving an edit rewrites the same file atomically under the same name, changes only those fields and sets `editedAt`. The kind, `id`, `createdAt`, `device`, `live`, `frames`, `motion`, `video` and `countVisible` are written back exactly as they were.
 - A take recorded with video also writes `<same base name>.mp4` in the same directory, for example `set_20260704-093015_3f2504e0.mp4`. "Export all" zips it with the rest; deleting a recording in the app deletes its video too.
 
 ## Top level
@@ -49,7 +50,7 @@ The types are defined in `Packages/PushupCore/Sources/PushupCore/RecordedSession
 
 ## Tags
 
-All values are strings. For `negative` and `pose` takes the recorder forces `tempo` to `na`, `variant` to `na` and `cheat` to `none`.
+All values are strings. For `negative` and `pose` takes the recorder forces `tempo` to `na`, `variant` to `na` and `cheat` to `none`, and leaves `hands`, `support` and `width` out.
 
 | Field | Values |
 |---|---|
@@ -57,8 +58,19 @@ All values are strings. For `negative` and `pose` takes the recorder forces `tem
 | `distance` | `near`, `mid`, `far` (phone to hands, ranges in the protocol) |
 | `clothing` | `fitted`, `loose` |
 | `tempo` | `slow`, `normal`, `fast`, `na` |
-| `variant` | `standard`, `knuckle`, `knee`, `wide`, `narrow`, `na` |
+| `variant` | `standard`, `knuckle`, `knee`, `knuckle_knee`, `wide`, `narrow`, `na` (a derived summary, see below) |
+| `hands` | `palms`, `knuckles`. Optional |
+| `support` | `toes`, `knees` (what the lower body rests on, shown as Legs in the recorder). Optional |
+| `width` | `normal`, `wide`, `narrow` (hand spacing). Optional |
 | `cheat` | `none`, `half_reps`, `arm_wave`, `phone_moved`, `video_replay`, `other` |
+
+### Hands, legs and width
+
+How the press-ups were done is three independent choices, so knuckle press-ups on the knees can be recorded as such: `hands` (`palms` or `knuckles`), `support` (`toes` or `knees`) and `width` (`normal`, `wide` or `narrow`). These three fields are the precise record. They are optional: they are absent in files recorded before they were added, and for `negative` and `pose` takes, where they do not apply.
+
+`variant` is kept so older readers and older files keep working. When the three fields are present it is a derived summary of them, chosen by the first rule that matches: `knuckles` with `knees` gives `knuckle_knee`; `knees` gives `knee`; `knuckles` gives `knuckle`; `wide` gives `wide`; `narrow` gives `narrow`; anything else gives `standard`. The recorder writes both and keeps them in agreement, including when a label is edited. The summary drops information (a wide grip on the knees is just `knee`), so use the three fields when they exist.
+
+For a file without them, infer the three from `variant`: `standard` is palms, toes, normal; `knuckle` is knuckles, toes, normal; `knee` is palms, knees, normal; `knuckle_knee` is knuckles, knees, normal; `wide` is palms, toes, wide; `narrow` is palms, toes, narrow; `na` is treated as `standard`. `PushupCore` does this in `RecordedSession.Tags.resolved`.
 
 ## Device
 
@@ -221,7 +233,10 @@ A minimal document (the landmark arrays are shortened here for reading; real one
     "clothing": "fitted",
     "tempo": "normal",
     "variant": "standard",
-    "cheat": "none"
+    "cheat": "none",
+    "hands": "palms",
+    "support": "toes",
+    "width": "normal"
   },
   "notes": "",
   "device": {

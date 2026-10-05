@@ -425,6 +425,9 @@ final class RecordingViewModel: ObservableObject {
             tags.tempo = .na
             tags.variant = .na
             tags.cheat = .none
+            tags.hands = nil
+            tags.support = nil
+            tags.width = nil
         }
         warningMessage = nil
         // Only keep the video if its file is still where the writer left it.

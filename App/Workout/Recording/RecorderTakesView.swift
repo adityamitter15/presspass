@@ -164,8 +164,8 @@ private struct TakeRow: View {
                     }
                     HStack(spacing: Theme.Space.xs) {
                         TagPill(text: summary.kind.title, color: Theme.textPrimary)
-                        if summary.kind == .set, summary.tags.variant != .na {
-                            TagPill(text: summary.tags.variant.title)
+                        if summary.kind == .set, !summary.tags.techniqueSummary.isEmpty {
+                            TagPill(text: summary.tags.techniqueTitle)
                         }
                         if summary.kind == .set, summary.tags.cheat != .none {
                             TagPill(text: summary.tags.cheat.title, color: Theme.amber, filled: true)
@@ -250,7 +250,7 @@ struct RecorderEditView: View {
         self.summary = summary
         _text = State(initialValue: summary.trueReps.map(String.init) ?? "")
         _subject = State(initialValue: summary.subject)
-        _tags = State(initialValue: summary.tags)
+        _tags = State(initialValue: summary.kind == .set ? summary.tags.withTechniqueFilled : summary.tags)
         _notes = State(initialValue: summary.notes)
         _poseLabel = State(initialValue: summary.poseLabel ?? .up)
     }
@@ -297,9 +297,9 @@ struct RecorderEditView: View {
                                     label: { $0.title },
                                     tint: tags.cheat == .none ? Theme.textPrimary : Theme.amber
                                 )
-                                MenuRow(title: "Variant", options: RecordedSession.Tags.Variant.choices, selection: $tags.variant) { $0.title }
                                 MenuRow(title: "Tempo", options: RecordedSession.Tags.Tempo.choices, selection: $tags.tempo) { $0.title }
                             }
+                            TechniqueRows(tags: $tags)
                         } else if summary.kind == .pose {
                             MenuRow(title: "Pose", options: PoseLabel.choices, selection: $poseLabel) { $0.title }
                         } else {

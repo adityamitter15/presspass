@@ -345,7 +345,7 @@ struct RecordedSessionTests {
         #expect(T.Distance.allCases.map(\.rawValue) == ["near", "mid", "far"])
         #expect(T.Clothing.allCases.map(\.rawValue) == ["fitted", "loose"])
         #expect(T.Tempo.allCases.map(\.rawValue) == ["slow", "normal", "fast", "na"])
-        #expect(T.Variant.allCases.map(\.rawValue) == ["standard", "knuckle", "knee", "wide", "narrow", "na"])
+        #expect(T.Variant.allCases.map(\.rawValue) == ["standard", "knuckle", "knee", "knuckle_knee", "wide", "narrow", "na"])
         #expect(T.Cheat.allCases.map(\.rawValue) == ["none", "half_reps", "arm_wave", "phone_moved", "video_replay", "other"])
         #expect(RecordedSession.Kind.allCases.map(\.rawValue) == ["set", "negative", "pose"])
     }

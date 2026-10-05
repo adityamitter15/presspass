@@ -332,6 +332,14 @@ final class RecordingStore: @unchecked Sendable {
             session.tags.tempo = .na
             session.tags.variant = .na
             session.tags.cheat = .none
+            session.tags.hands = nil
+            session.tags.support = nil
+            session.tags.width = nil
+        } else if session.tags.hands != nil || session.tags.support != nil || session.tags.width != nil {
+            // The three technique fields are the record, `variant` only a
+            // summary of them: fill in any missing one and derive `variant`
+            // again, so the two cannot disagree whatever `edit` did.
+            session.tags.setTechnique()
         }
         session.editedAt = RecordedSession.iso8601String(from: now)
         return session

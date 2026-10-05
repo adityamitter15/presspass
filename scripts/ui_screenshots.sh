@@ -127,7 +127,7 @@ sleep 3
 shot settings
 
 # The data recorder, stage by stage. Its setup is pinned by the launch
-# arguments (subject S07, knuckle, shown count unless -recorderCount 0), and
+# arguments (subject S07, knuckles and knees, shown count unless -recorderCount 0), and
 # -demoRecordings 1 gives it three in-memory takes so nothing is written.
 # The recorder opens about 0.35 s after launch; a take starts 1.2 s after it
 # opens and the label shot stops it 6 s later.

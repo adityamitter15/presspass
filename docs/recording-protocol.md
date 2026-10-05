@@ -92,7 +92,7 @@ Spread sessions across the conditions below. One combination per session is enou
 | `indoor_bright` | | | |
 | `dim` | | | |
 
-Alternate `fitted` and `loose` clothing between sessions. Knuckle and knee press-ups are accepted variants as long as they are tagged: choose `knuckle` or `knee` under Variant before Start, and count a rep as valid under the same definition as any other. Include at least one session each for the `knuckle`, `knee`, `wide` and `narrow` variants if you do them.
+Alternate `fitted` and `loose` clothing between sessions. Knuckle and knee press-ups are accepted as long as they are tagged. They are chosen independently under Hands (palms or knuckles) and Legs (toes or knees) before Start, and can be combined, so knuckle press-ups on the knees are Knuckles plus Knees. Hand spacing is chosen under Width. Count a rep as valid under the same definition as any other. Include at least one session each for knuckles, knees, wide and narrow if you do them, and one with knuckles and knees together if anyone does that.
 
 ## Other people
 

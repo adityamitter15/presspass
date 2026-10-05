@@ -137,19 +137,20 @@ struct RecorderLabelSheet: View {
                     tint: cheat == .none ? Theme.textPrimary : Theme.amber
                 )
                 MenuRow(
-                    title: "Variant",
-                    options: RecordedSession.Tags.Variant.choices,
-                    selection: binding(\.variant),
-                    label: { $0.title }
-                )
-                MenuRow(
                     title: "Tempo",
                     options: RecordedSession.Tags.Tempo.choices,
                     selection: binding(\.tempo),
                     label: { $0.title }
                 )
             }
+            TechniqueRows(tags: tagsBinding)
         }
+    }
+
+    /// The whole tag set, for the technique rows, which change three fields
+    /// and the legacy variant together.
+    private var tagsBinding: Binding<RecordedSession.Tags> {
+        Binding(get: { take.tags }, set: { onTagsChange($0) })
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<RecordedSession.Tags, Value>) -> Binding<Value> {

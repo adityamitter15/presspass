@@ -16,7 +16,9 @@ struct RecorderSetupView: View {
     @AppStorage(RecorderPrefs.distance) private var distance: RecordedSession.Tags.Distance = .mid
     @AppStorage(RecorderPrefs.clothing) private var clothing: RecordedSession.Tags.Clothing = .fitted
     @AppStorage(RecorderPrefs.tempo) private var tempo: RecordedSession.Tags.Tempo = .normal
-    @AppStorage(RecorderPrefs.variant) private var variant: RecordedSession.Tags.Variant = .standard
+    @AppStorage(RecorderPrefs.hands) private var hands: RecordedSession.Tags.Hands = .palms
+    @AppStorage(RecorderPrefs.support) private var support: RecordedSession.Tags.Support = .toes
+    @AppStorage(RecorderPrefs.width) private var width: RecordedSession.Tags.Width = .normal
     @AppStorage(RecorderPrefs.cheat) private var cheat: RecordedSession.Tags.Cheat = .none
     @AppStorage(RecorderPrefs.poseLabel) private var poseLabel: PoseLabel = .up
     @AppStorage(RecorderPrefs.notes) private var notes = ""
@@ -180,8 +182,7 @@ struct RecorderSetupView: View {
 
             switch kind {
             case .set:
-                RecorderFieldLabel("Variant")
-                ChipFlow(options: RecordedSession.Tags.Variant.choices, selection: $variant) { $0.title }
+                TechniqueRows(hands: $hands, support: $support, width: $width)
                 RecorderFieldLabel("Tempo")
                 ChipFlow(options: RecordedSession.Tags.Tempo.choices, selection: $tempo) { $0.title }
                 cheatBox
@@ -343,7 +344,7 @@ struct RecorderSetupView: View {
     private var startTitle: String {
         guard !trimmedSubject.isEmpty else { return "Enter a subject to start" }
         return RecorderCopy.startTitle(
-            subject: trimmedSubject, kind: kind, variant: variant, cheat: effectiveCheat, poseLabel: poseLabel
+            subject: trimmedSubject, kind: kind, tags: currentSetup.tags, cheat: effectiveCheat, poseLabel: poseLabel
         )
     }
 
@@ -396,8 +397,11 @@ struct RecorderSetupView: View {
                 distance: distance,
                 clothing: clothing,
                 tempo: tempo,
-                variant: variant,
-                cheat: effectiveCheat
+                variant: RecordedSession.Tags.variant(hands: hands, support: support, width: width),
+                cheat: effectiveCheat,
+                hands: hands,
+                support: support,
+                width: width
             ),
             poseLabel: poseLabel,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),

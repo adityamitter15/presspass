@@ -126,6 +126,57 @@ struct ChipFlow<Value: Hashable>: View {
     }
 }
 
+/// How the press-ups are done, as three independent rows of chips: Hands,
+/// Legs and Width. Each row picks one value and the rows do not affect each
+/// other, so knuckles and knees can both be on.
+struct TechniqueRows: View {
+    @Binding var hands: RecordedSession.Tags.Hands
+    @Binding var support: RecordedSession.Tags.Support
+    @Binding var width: RecordedSession.Tags.Width
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.l) {
+            row("Hands") {
+                ChipFlow(options: RecordedSession.Tags.Hands.allCases, selection: $hands) { $0.title }
+            }
+            row("Legs") {
+                ChipFlow(options: RecordedSession.Tags.Support.allCases, selection: $support) { $0.title }
+            }
+            row("Width") {
+                ChipFlow(options: RecordedSession.Tags.Width.allCases, selection: $width) { $0.title }
+            }
+        }
+    }
+
+    private func row<Chips: View>(_ title: String, @ViewBuilder chips: () -> Chips) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            RecorderFieldLabel(title)
+            chips()
+        }
+    }
+}
+
+extension TechniqueRows {
+    /// The rows for a take's tags. A change fills in all three choices and
+    /// recomputes `variant`, see `Tags.setTechnique`.
+    init(tags: Binding<RecordedSession.Tags>) {
+        self.init(
+            hands: Binding(
+                get: { tags.wrappedValue.resolved.hands },
+                set: { tags.wrappedValue.setTechnique(hands: $0) }
+            ),
+            support: Binding(
+                get: { tags.wrappedValue.resolved.support },
+                set: { tags.wrappedValue.setTechnique(support: $0) }
+            ),
+            width: Binding(
+                get: { tags.wrappedValue.resolved.width },
+                set: { tags.wrappedValue.setTechnique(width: $0) }
+            )
+        )
+    }
+}
+
 /// A pill-shaped segmented control, 48 points high.
 struct RecorderSegmented<Option: Hashable>: View {
     let options: [Option]

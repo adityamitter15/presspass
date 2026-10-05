@@ -103,7 +103,9 @@ struct RecordingView: View {
         let environment = AppEnvironment.current
         defaults.set(RecordedSession.Kind.set.rawValue, forKey: RecorderPrefs.kind)
         defaults.set("S07", forKey: RecorderPrefs.subject)
-        defaults.set(RecordedSession.Tags.Variant.knuckle.rawValue, forKey: RecorderPrefs.variant)
+        defaults.set(RecordedSession.Tags.Hands.knuckles.rawValue, forKey: RecorderPrefs.hands)
+        defaults.set(RecordedSession.Tags.Support.knees.rawValue, forKey: RecorderPrefs.support)
+        defaults.set(RecordedSession.Tags.Width.normal.rawValue, forKey: RecorderPrefs.width)
         defaults.set(RecordedSession.Tags.Tempo.normal.rawValue, forKey: RecorderPrefs.tempo)
         defaults.set((environment.recorderCheat ?? .none).rawValue, forKey: RecorderPrefs.cheat)
         defaults.set(environment.recorderCountVisible ?? true, forKey: RecorderPrefs.countVisible)

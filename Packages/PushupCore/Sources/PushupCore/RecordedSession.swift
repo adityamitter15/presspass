@@ -38,13 +38,37 @@ public struct RecordedSession: Codable, Equatable {
             case na
         }
 
+        /// A single-value summary of how the press-ups were done, kept so older
+        /// readers and older files keep working. `hands`, `support` and
+        /// `width` are the precise record, and `variant(hands:support:width:)`
+        /// is how this value is derived from them.
         public enum Variant: String, Codable, CaseIterable {
             case standard
             case knuckle
             case knee
+            case knuckleKnee = "knuckle_knee"
             case wide
             case narrow
             case na
+        }
+
+        /// What the hands are on.
+        public enum Hands: String, Codable, CaseIterable {
+            case palms
+            case knuckles
+        }
+
+        /// What the lower body rests on.
+        public enum Support: String, Codable, CaseIterable {
+            case toes
+            case knees
+        }
+
+        /// How far apart the hands are.
+        public enum Width: String, Codable, CaseIterable {
+            case normal
+            case wide
+            case narrow
         }
 
         public enum Cheat: String, Codable, CaseIterable {
@@ -60,8 +84,19 @@ public struct RecordedSession: Codable, Equatable {
         public var distance: Distance
         public var clothing: Clothing
         public var tempo: Tempo
+        /// The legacy single-value summary of `hands`, `support` and `width`,
+        /// kept so older readers and files keep working. When the three
+        /// fields are present, this is `Tags.variant(hands:support:width:)` of
+        /// them. The three fields are the precise record.
         public var variant: Variant
         public var cheat: Cheat
+        /// nil in files recorded before these three fields existed, and for
+        /// takes they do not apply to (negatives and held poses). Omitted
+        /// from the JSON when nil. Use `resolved` to read them with a
+        /// fallback to `variant`.
+        public var hands: Hands?
+        public var support: Support?
+        public var width: Width?
 
         public init(
             lighting: Lighting,
@@ -69,7 +104,10 @@ public struct RecordedSession: Codable, Equatable {
             clothing: Clothing,
             tempo: Tempo,
             variant: Variant,
-            cheat: Cheat
+            cheat: Cheat,
+            hands: Hands? = nil,
+            support: Support? = nil,
+            width: Width? = nil
         ) {
             self.lighting = lighting
             self.distance = distance
@@ -77,6 +115,40 @@ public struct RecordedSession: Codable, Equatable {
             self.tempo = tempo
             self.variant = variant
             self.cheat = cheat
+            self.hands = hands
+            self.support = support
+            self.width = width
+        }
+
+        /// Summarises the three independent choices as the legacy single
+        /// `variant`. Knuckles with knees is `knuckleKnee`; otherwise knees,
+        /// then knuckles, then a wide or narrow grip, then `standard`.
+        public static func variant(hands: Hands, support: Support, width: Width) -> Variant {
+            if hands == .knuckles, support == .knees { return .knuckleKnee }
+            if support == .knees { return .knee }
+            if hands == .knuckles { return .knuckle }
+            switch width {
+            case .wide: return .wide
+            case .narrow: return .narrow
+            case .normal: return .standard
+            }
+        }
+
+        /// The three choices: the stored fields where present, otherwise
+        /// inferred from `variant` (so a take recorded before the fields
+        /// existed still reads sensibly). A field that is present always wins
+        /// over what `variant` would imply.
+        public var resolved: (hands: Hands, support: Support, width: Width) {
+            let inferred: (hands: Hands, support: Support, width: Width)
+            switch variant {
+            case .standard, .na: inferred = (.palms, .toes, .normal)
+            case .knuckle: inferred = (.knuckles, .toes, .normal)
+            case .knee: inferred = (.palms, .knees, .normal)
+            case .knuckleKnee: inferred = (.knuckles, .knees, .normal)
+            case .wide: inferred = (.palms, .toes, .wide)
+            case .narrow: inferred = (.palms, .toes, .narrow)
+            }
+            return (hands ?? inferred.hands, support ?? inferred.support, width ?? inferred.width)
         }
     }
 

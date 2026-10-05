@@ -1,7 +1,10 @@
 name: CI
 
+# Run on demand and on pull requests. Pushes to a private repository do not
+# trigger it, because macOS runners use up the free minutes ten times faster.
+# Add `push:` back when the repository is public, where Actions are free.
 on:
-  push:
+  workflow_dispatch:
   pull_request:
 
 jobs:

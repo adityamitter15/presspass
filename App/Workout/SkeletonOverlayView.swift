@@ -9,6 +9,14 @@ import SwiftUI
 struct SkeletonOverlayView: View {
     let frame: PoseFrame?
 
+    /// Width divided by height of the camera image the joints were measured
+    /// in. The preview shows that image aspect fill, cropping whatever does
+    /// not fit, so the overlay maps its points through the same fit. Drawing
+    /// straight onto the view's own bounds would slide the skeleton off the
+    /// person wherever the view's shape differs from the camera's. The
+    /// capture session delivers portrait 9:16 frames.
+    var imageAspect: CGFloat = 9.0 / 16.0
+
     /// Bone connections drawn between joint pairs, by name.
     private static let bones: [(JointName, JointName)] = [
         (.leftShoulder, .rightShoulder),
@@ -37,7 +45,11 @@ struct SkeletonOverlayView: View {
                 guard let joint = frame.joints[name], joint.confidence >= Self.minJointConfidence else {
                     return nil
                 }
-                return CGPoint(x: joint.x * size.width, y: (1 - joint.y) * size.height)
+                return AspectFill.point(
+                    normalizedTopLeft: CGPoint(x: joint.x, y: 1 - joint.y),
+                    imageAspect: imageAspect,
+                    in: size
+                )
             }
 
             // The bones go into one layer so the glow is applied once, not per bone.

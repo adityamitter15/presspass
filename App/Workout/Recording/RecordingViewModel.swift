@@ -105,6 +105,8 @@ final class RecordingViewModel: ObservableObject {
     @Published private(set) var activeTakeIsUnusual = false
     @Published private(set) var isExporting = false
     @Published var errorMessage: String?
+    /// Set while the system has taken the camera away, with the reason.
+    @Published private(set) var cameraNotice: String?
     /// Something that did not stop a take being saved, such as a video that
     /// could not be kept. Never carries a count.
     @Published private(set) var warningMessage: String?
@@ -149,6 +151,9 @@ final class RecordingViewModel: ObservableObject {
         self.poseSource = poseSource
         isMotionAvailable = motionRecorder.isAvailable
         isVideoAvailable = poseSource is CameraPoseSession
+        poseSource.onInterruption = { [weak self] message in
+            self?.cameraNotice = message
+        }
         poseSource.onRawFrame = { [weak self] raw in
             self?.handle(raw: raw)
         }

@@ -59,10 +59,12 @@ enum RingState: Equatable {
     case shallow
 }
 
-/// Why the camera could not start.
+/// Why there is no camera picture.
 enum CameraIssue: Equatable {
     case notAuthorized
     case unavailable
+    /// The system has taken the camera away for now. Clears by itself.
+    case interrupted(String)
 }
 
 /// Coordinates the pose source (camera, or a replay in the Simulator), the
@@ -150,6 +152,14 @@ final class WorkoutViewModel: ObservableObject {
         self.pipeline = pipeline
         self.poseSource.onFrame = { [weak self] frame in
             self?.handle(frame: frame)
+        }
+        self.poseSource.onInterruption = { [weak self] message in
+            guard let self else { return }
+            if let message {
+                self.cameraIssue = .interrupted(message)
+            } else if case .interrupted = self.cameraIssue {
+                self.cameraIssue = nil
+            }
         }
     }
 

@@ -248,6 +248,7 @@ private struct CameraIssueView: View {
         switch issue {
         case .notAuthorized: "PressPass needs your camera"
         case .unavailable: "No front camera found"
+        case .interrupted: "The camera is paused"
         }
     }
 
@@ -257,6 +258,8 @@ private struct CameraIssueView: View {
             "The front camera is how PressPass counts your press-ups. Turn it on in Settings and come straight back."
         case .unavailable:
             "PressPass counts press-ups with the front camera, and this device does not have one it can use."
+        case .interrupted(let reason):
+            reason
         }
     }
 }

@@ -24,6 +24,12 @@ protocol PoseSource: AnyObject {
     /// from any queue. A source with no camera (replay) never calls it.
     var onSampleBuffer: ((CMSampleBuffer) -> Void)? { get set }
 
+    /// Called on the main queue when the system takes the camera away from
+    /// the app (another app on screen, a call, heat) with a message that says
+    /// why in plain words, and again with nil when the camera comes back. A
+    /// source with no camera never calls it.
+    var onInterruption: ((String?) -> Void)? { get set }
+
     /// Nil when the source has no camera image to show (replay).
     func makePreviewLayer() -> AVCaptureVideoPreviewLayer?
 

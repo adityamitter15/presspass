@@ -455,6 +455,24 @@ struct RecorderCameraLayers: View {
                 }
             }
             SkeletonOverlayView(frame: viewModel.latestFrame)
+            if let notice = viewModel.cameraNotice {
+                VStack(spacing: Theme.Space.s) {
+                    Image(systemName: "video.slash.fill")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(Theme.coral)
+                    Text("The camera is paused")
+                        .font(.system(.headline, design: .rounded))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(notice)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(Theme.Space.l)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Theme.ink900.opacity(0.88))
+                .accessibilityElement(children: .combine)
+            }
         }
     }
 }

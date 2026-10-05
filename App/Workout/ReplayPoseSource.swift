@@ -21,6 +21,8 @@ final class ReplayPoseSource: PoseSource {
     var onRawFrame: ((RawPoseFrame) -> Void)?
     /// Stored to satisfy `PoseSource`; a replay has no camera, so it never calls this.
     var onSampleBuffer: ((CMSampleBuffer) -> Void)?
+    /// Never called: a replay has no camera to lose.
+    var onInterruption: ((String?) -> Void)?
 
     private let loops: Bool
     private let speed: Double
